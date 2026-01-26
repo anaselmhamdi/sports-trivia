@@ -1,0 +1,63 @@
+# Python
+**/__pycache__/
+**/*.py[cod]
+**/*$py.class
+**/*.so
+**/.Python
+**/.venv/
+**/venv/
+**/ENV/
+**/.eggs/
+**/*.egg-info/
+**/*.egg
+
+# Testing
+**/.pytest_cache/
+**/.coverage
+**/htmlcov/
+**/.tox/
+**/.nox/
+
+# IDE
+**/.idea/
+**/.vscode/
+**/*.swp
+**/*.swo
+
+# Git
+.git/
+.gitignore
+
+# Build artifacts
+**/build/
+**/dist/
+**/*.manifest
+**/*.spec
+
+# Logs
+**/*.log
+**/logs/
+
+# Local config
+**/.env
+**/.env.*
+**/*.local
+
+# Tests (not needed in production)
+backend/tests/
+frontend/test/
+
+# Documentation
+*.md
+docs/
+
+# Flutter build artifacts (we build fresh)
+frontend/.dart_tool/
+frontend/.packages
+frontend/.pub-cache/
+frontend/build/
+
+# Large data files not needed if using pre-seeded DB
+# Uncomment these if you want smaller image and only use DB:
+# backend/src/sports_trivia/data/*.csv
+# backend/src/sports_trivia/data/*.json

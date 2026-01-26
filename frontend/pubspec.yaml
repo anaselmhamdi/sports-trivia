@@ -1,0 +1,44 @@
+name: sports_trivia
+description: Clutch - think you know sports ? go head to head with somebody else to find out.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.7
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State Management
+  flutter_riverpod: ^2.6.1
+
+  # Navigation
+  go_router: ^14.8.1
+
+  # WebSocket
+  web_socket_channel: ^3.0.2
+
+  # HTTP client
+  http: ^1.2.2
+
+  # Typography
+  google_fonts: ^6.2.1
+
+  # Animations
+  flutter_animate: ^4.5.2
+  confetti: ^0.8.0
+
+  # Platform features
+  share_plus: ^10.1.4
+
+  # Audio (optional)
+  audioplayers: ^6.4.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
