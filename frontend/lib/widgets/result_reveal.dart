@@ -151,7 +151,7 @@ class _ResultRevealState extends State<ResultReveal> {
   }
 }
 
-/// Hero player image
+/// Hero player image with name
 class _HeroPlayerImage extends StatelessWidget {
   final String imageUrl;
   final String playerName;
@@ -167,33 +167,49 @@ class _HeroPlayerImage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       margin: const EdgeInsets.only(bottom: AppTheme.spaceLg),
-      child: ClipOval(
-        child: SizedBox(
-          width: 120,
-          height: 120,
-          child: Image.network(
-            getProxiedImageUrl(imageUrl) ?? '',
-            fit: BoxFit.cover,
-            loadingBuilder: (context, child, loadingProgress) {
-              if (loadingProgress == null) return child;
-              return Container(
-                color: AppColors.surface,
-                child: Center(
-                  child: _SportIcon(sport: sport, size: 48),
-                ),
-              );
-            },
-            errorBuilder: (context, error, stackTrace) {
-              debugPrint('Hero image load error for $imageUrl: $error');
-              return Container(
-                color: AppColors.surface,
-                child: Center(
-                  child: _SportIcon(sport: sport, size: 48),
-                ),
-              );
-            },
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Player image
+          ClipOval(
+            child: SizedBox(
+              width: 120,
+              height: 120,
+              child: Image.network(
+                getProxiedImageUrl(imageUrl) ?? '',
+                fit: BoxFit.cover,
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return Container(
+                    color: AppColors.surface,
+                    child: Center(
+                      child: _SportIcon(sport: sport, size: 48),
+                    ),
+                  );
+                },
+                errorBuilder: (context, error, stackTrace) {
+                  debugPrint('Hero image load error for $imageUrl: $error');
+                  return Container(
+                    color: AppColors.surface,
+                    child: Center(
+                      child: _SportIcon(sport: sport, size: 48),
+                    ),
+                  );
+                },
+              ),
+            ),
           ),
-        ),
+          const SizedBox(height: AppTheme.spaceMd),
+          // Player name
+          Text(
+            playerName,
+            style: AppTheme.h3Style.copyWith(
+              color: AppColors.electricCyan,
+              fontWeight: FontWeight.w600,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
       ),
     )
         .animate()

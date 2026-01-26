@@ -11,8 +11,8 @@
       "nickname": "Hawks",
       "city": "Atlanta",
       "abbreviation": "ATL",
-      "logo": "https://cdn.nba.com/logos/nba/1610612737/global/L/logo.svg",
-      "logo_small": "https://cdn.nba.com/logos/nba/1610612737/global/S/logo.svg",
+      "logo": "https://cdn.nba.com/logos/nba/1610612737/primary/L/logo.png",
+      "logo_small": "https://cdn.nba.com/logos/nba/1610612737/primary/S/logo.png",
       "players": [
         {
           "name": "Al Horford",
@@ -2422,8 +2422,8 @@
       "nickname": "Celtics",
       "city": "Boston",
       "abbreviation": "BOS",
-      "logo": "https://cdn.nba.com/logos/nba/1610612738/global/L/logo.svg",
-      "logo_small": "https://cdn.nba.com/logos/nba/1610612738/global/S/logo.svg",
+      "logo": "https://cdn.nba.com/logos/nba/1610612738/primary/L/logo.png",
+      "logo_small": "https://cdn.nba.com/logos/nba/1610612738/primary/S/logo.png",
       "players": [
         {
           "name": "Lorenzo Williams",
@@ -4505,8 +4505,8 @@
       "nickname": "Cavaliers",
       "city": "Cleveland",
       "abbreviation": "CLE",
-      "logo": "https://cdn.nba.com/logos/nba/1610612739/global/L/logo.svg",
-      "logo_small": "https://cdn.nba.com/logos/nba/1610612739/global/S/logo.svg",
+      "logo": "https://cdn.nba.com/logos/nba/1610612739/primary/L/logo.png",
+      "logo_small": "https://cdn.nba.com/logos/nba/1610612739/primary/S/logo.png",
       "players": [
         {
           "name": "Tyrese Proctor",
@@ -6368,8 +6368,8 @@
       "nickname": "Pelicans",
       "city": "New Orleans",
       "abbreviation": "NOP",
-      "logo": "https://cdn.nba.com/logos/nba/1610612740/global/L/logo.svg",
-      "logo_small": "https://cdn.nba.com/logos/nba/1610612740/global/S/logo.svg",
+      "logo": "https://cdn.nba.com/logos/nba/1610612740/primary/L/logo.png",
+      "logo_small": "https://cdn.nba.com/logos/nba/1610612740/primary/S/logo.png",
       "players": [
         {
           "name": "Brandon Boston",
@@ -7411,8 +7411,8 @@
       "nickname": "Bulls",
       "city": "Chicago",
       "abbreviation": "CHI",
-      "logo": "https://cdn.nba.com/logos/nba/1610612741/global/L/logo.svg",
-      "logo_small": "https://cdn.nba.com/logos/nba/1610612741/global/S/logo.svg",
+      "logo": "https://cdn.nba.com/logos/nba/1610612741/primary/L/logo.png",
+      "logo_small": "https://cdn.nba.com/logos/nba/1610612741/primary/S/logo.png",
       "players": [
         {
           "name": "DeMar DeRozan",
@@ -9142,8 +9142,8 @@
       "nickname": "Mavericks",
       "city": "Dallas",
       "abbreviation": "DAL",
-      "logo": "https://cdn.nba.com/logos/nba/1610612742/global/L/logo.svg",
-      "logo_small": "https://cdn.nba.com/logos/nba/1610612742/global/S/logo.svg",
+      "logo": "https://cdn.nba.com/logos/nba/1610612742/primary/L/logo.png",
+      "logo_small": "https://cdn.nba.com/logos/nba/1610612742/primary/S/logo.png",
       "players": [
         {
           "name": "Ryan Nembhard",
@@ -10721,8 +10721,8 @@
       "nickname": "Nuggets",
       "city": "Denver",
       "abbreviation": "DEN",
-      "logo": "https://cdn.nba.com/logos/nba/1610612743/global/L/logo.svg",
-      "logo_small": "https://cdn.nba.com/logos/nba/1610612743/global/S/logo.svg",
+      "logo": "https://cdn.nba.com/logos/nba/1610612743/primary/L/logo.png",
+      "logo_small": "https://cdn.nba.com/logos/nba/1610612743/primary/S/logo.png",
       "players": [
         {
           "name": "Jeff Green",
@@ -12240,8 +12240,8 @@
       "nickname": "Warriors",
       "city": "San Francisco",
       "abbreviation": "GSW",
-      "logo": "https://cdn.nba.com/logos/nba/1610612744/global/L/logo.svg",
-      "logo_small": "https://cdn.nba.com/logos/nba/1610612744/global/S/logo.svg",
+      "logo": "https://cdn.nba.com/logos/nba/1610612744/primary/L/logo.png",
+      "logo_small": "https://cdn.nba.com/logos/nba/1610612744/primary/S/logo.png",
       "players": [
         {
           "name": "Jackson Rowe",
@@ -14531,8 +14531,8 @@
       "nickname": "Rockets",
       "city": "Houston",
       "abbreviation": "HOU",
-      "logo": "https://cdn.nba.com/logos/nba/1610612745/global/L/logo.svg",
-      "logo_small": "https://cdn.nba.com/logos/nba/1610612745/global/S/logo.svg",
+      "logo": "https://cdn.nba.com/logos/nba/1610612745/primary/L/logo.png",
+      "logo_small": "https://cdn.nba.com/logos/nba/1610612745/primary/S/logo.png",
       "players": [
         {
           "name": "Isaiah Crawford",
@@ -16322,8 +16322,8 @@
       "nickname": "Clippers",
       "city": "Los Angeles",
       "abbreviation": "LAC",
-      "logo": "https://cdn.nba.com/logos/nba/1610612746/global/L/logo.svg",
-      "logo_small": "https://cdn.nba.com/logos/nba/1610612746/global/S/logo.svg",
+      "logo": "https://cdn.nba.com/logos/nba/1610612746/primary/L/logo.png",
+      "logo_small": "https://cdn.nba.com/logos/nba/1610612746/primary/S/logo.png",
       "players": [
         {
           "name": "Jahmyl Telfort",
@@ -18365,8 +18365,8 @@
       "nickname": "Lakers",
       "city": "Los Angeles",
       "abbreviation": "LAL",
-      "logo": "https://cdn.nba.com/logos/nba/1610612747/global/L/logo.svg",
-      "logo_small": "https://cdn.nba.com/logos/nba/1610612747/global/S/logo.svg",
+      "logo": "https://cdn.nba.com/logos/nba/1610612747/primary/L/logo.png",
+      "logo_small": "https://cdn.nba.com/logos/nba/1610612747/primary/S/logo.png",
       "players": [
         {
           "name": "LeBron James",
@@ -20412,8 +20412,8 @@
       "nickname": "Heat",
       "city": "Miami",
       "abbreviation": "MIA",
-      "logo": "https://cdn.nba.com/logos/nba/1610612748/global/L/logo.svg",
-      "logo_small": "https://cdn.nba.com/logos/nba/1610612748/global/S/logo.svg",
+      "logo": "https://cdn.nba.com/logos/nba/1610612748/primary/L/logo.png",
+      "logo_small": "https://cdn.nba.com/logos/nba/1610612748/primary/S/logo.png",
       "players": [
         {
           "name": "Dan Schayes",
@@ -21639,8 +21639,8 @@
       "nickname": "Bucks",
       "city": "Milwaukee",
       "abbreviation": "MIL",
-      "logo": "https://cdn.nba.com/logos/nba/1610612749/global/L/logo.svg",
-      "logo_small": "https://cdn.nba.com/logos/nba/1610612749/global/S/logo.svg",
+      "logo": "https://cdn.nba.com/logos/nba/1610612749/primary/L/logo.png",
+      "logo_small": "https://cdn.nba.com/logos/nba/1610612749/primary/S/logo.png",
       "players": [
         {
           "name": "AJ Johnson",
@@ -23542,8 +23542,8 @@
       "nickname": "Timberwolves",
       "city": "Minnesota",
       "abbreviation": "MIN",
-      "logo": "https://cdn.nba.com/logos/nba/1610612750/global/L/logo.svg",
-      "logo_small": "https://cdn.nba.com/logos/nba/1610612750/global/S/logo.svg",
+      "logo": "https://cdn.nba.com/logos/nba/1610612750/primary/L/logo.png",
+      "logo_small": "https://cdn.nba.com/logos/nba/1610612750/primary/S/logo.png",
       "players": [
         {
           "name": "Micheal Williams",
@@ -24777,8 +24777,8 @@
       "nickname": "Nets",
       "city": "Brooklyn",
       "abbreviation": "BKN",
-      "logo": "https://cdn.nba.com/logos/nba/1610612751/global/L/logo.svg",
-      "logo_small": "https://cdn.nba.com/logos/nba/1610612751/global/S/logo.svg",
+      "logo": "https://cdn.nba.com/logos/nba/1610612751/primary/L/logo.png",
+      "logo_small": "https://cdn.nba.com/logos/nba/1610612751/primary/S/logo.png",
       "players": [
         {
           "name": "Cui Cui",
@@ -26732,8 +26732,8 @@
       "nickname": "Knicks",
       "city": "New York",
       "abbreviation": "NYK",
-      "logo": "https://cdn.nba.com/logos/nba/1610612752/global/L/logo.svg",
-      "logo_small": "https://cdn.nba.com/logos/nba/1610612752/global/S/logo.svg",
+      "logo": "https://cdn.nba.com/logos/nba/1610612752/primary/L/logo.png",
+      "logo_small": "https://cdn.nba.com/logos/nba/1610612752/primary/S/logo.png",
       "players": [
         {
           "name": "DeAndre Jordan",
@@ -28939,8 +28939,8 @@
       "nickname": "Magic",
       "city": "Orlando",
       "abbreviation": "ORL",
-      "logo": "https://cdn.nba.com/logos/nba/1610612753/global/L/logo.svg",
-      "logo_small": "https://cdn.nba.com/logos/nba/1610612753/global/S/logo.svg",
+      "logo": "https://cdn.nba.com/logos/nba/1610612753/primary/L/logo.png",
+      "logo_small": "https://cdn.nba.com/logos/nba/1610612753/primary/S/logo.png",
       "players": [
         {
           "name": "Jeff Green",
@@ -30126,8 +30126,8 @@
       "nickname": "Pacers",
       "city": "Indiana",
       "abbreviation": "IND",
-      "logo": "https://cdn.nba.com/logos/nba/1610612754/global/L/logo.svg",
-      "logo_small": "https://cdn.nba.com/logos/nba/1610612754/global/S/logo.svg",
+      "logo": "https://cdn.nba.com/logos/nba/1610612754/primary/L/logo.png",
+      "logo_small": "https://cdn.nba.com/logos/nba/1610612754/primary/S/logo.png",
       "players": [
         {
           "name": "Paul George",
@@ -31521,8 +31521,8 @@
       "nickname": "76ers",
       "city": "Philadelphia",
       "abbreviation": "PHI",
-      "logo": "https://cdn.nba.com/logos/nba/1610612755/global/L/logo.svg",
-      "logo_small": "https://cdn.nba.com/logos/nba/1610612755/global/S/logo.svg",
+      "logo": "https://cdn.nba.com/logos/nba/1610612755/primary/L/logo.png",
+      "logo_small": "https://cdn.nba.com/logos/nba/1610612755/primary/S/logo.png",
       "players": [
         {
           "name": "Kyle Lowry",
@@ -33888,8 +33888,8 @@
       "nickname": "Suns",
       "city": "Phoenix",
       "abbreviation": "PHX",
-      "logo": "https://cdn.nba.com/logos/nba/1610612756/global/L/logo.svg",
-      "logo_small": "https://cdn.nba.com/logos/nba/1610612756/global/S/logo.svg",
+      "logo": "https://cdn.nba.com/logos/nba/1610612756/primary/L/logo.png",
+      "logo_small": "https://cdn.nba.com/logos/nba/1610612756/primary/S/logo.png",
       "players": [
         {
           "name": "Chris Paul",
@@ -35711,8 +35711,8 @@
       "nickname": "Trail Blazers",
       "city": "Portland",
       "abbreviation": "POR",
-      "logo": "https://cdn.nba.com/logos/nba/1610612757/global/L/logo.svg",
-      "logo_small": "https://cdn.nba.com/logos/nba/1610612757/global/S/logo.svg",
+      "logo": "https://cdn.nba.com/logos/nba/1610612757/primary/L/logo.png",
+      "logo_small": "https://cdn.nba.com/logos/nba/1610612757/primary/S/logo.png",
       "players": [
         {
           "name": "Clyde Drexler",
@@ -37334,8 +37334,8 @@
       "nickname": "Kings",
       "city": "Sacramento",
       "abbreviation": "SAC",
-      "logo": "https://cdn.nba.com/logos/nba/1610612758/global/L/logo.svg",
-      "logo_small": "https://cdn.nba.com/logos/nba/1610612758/global/S/logo.svg",
+      "logo": "https://cdn.nba.com/logos/nba/1610612758/primary/L/logo.png",
+      "logo_small": "https://cdn.nba.com/logos/nba/1610612758/primary/S/logo.png",
       "players": [
         {
           "name": "Chima Moneke",
@@ -39581,8 +39581,8 @@
       "nickname": "Spurs",
       "city": "San Antonio",
       "abbreviation": "SAS",
-      "logo": "https://cdn.nba.com/logos/nba/1610612759/global/L/logo.svg",
-      "logo_small": "https://cdn.nba.com/logos/nba/1610612759/global/S/logo.svg",
+      "logo": "https://cdn.nba.com/logos/nba/1610612759/primary/L/logo.png",
+      "logo_small": "https://cdn.nba.com/logos/nba/1610612759/primary/S/logo.png",
       "players": [
         {
           "name": "Jordan Hall",
@@ -41180,8 +41180,8 @@
       "nickname": "Thunder",
       "city": "Oklahoma City",
       "abbreviation": "OKC",
-      "logo": "https://cdn.nba.com/logos/nba/1610612760/global/L/logo.svg",
-      "logo_small": "https://cdn.nba.com/logos/nba/1610612760/global/S/logo.svg",
+      "logo": "https://cdn.nba.com/logos/nba/1610612760/primary/L/logo.png",
+      "logo_small": "https://cdn.nba.com/logos/nba/1610612760/primary/S/logo.png",
       "players": [
         {
           "name": "Chris King",
@@ -42819,8 +42819,8 @@
       "nickname": "Raptors",
       "city": "Toronto",
       "abbreviation": "TOR",
-      "logo": "https://cdn.nba.com/logos/nba/1610612761/global/L/logo.svg",
-      "logo_small": "https://cdn.nba.com/logos/nba/1610612761/global/S/logo.svg",
+      "logo": "https://cdn.nba.com/logos/nba/1610612761/primary/L/logo.png",
+      "logo_small": "https://cdn.nba.com/logos/nba/1610612761/primary/S/logo.png",
       "players": [
         {
           "name": "Malik Williams",
@@ -44054,8 +44054,8 @@
       "nickname": "Jazz",
       "city": "Utah",
       "abbreviation": "UTA",
-      "logo": "https://cdn.nba.com/logos/nba/1610612762/global/L/logo.svg",
-      "logo_small": "https://cdn.nba.com/logos/nba/1610612762/global/S/logo.svg",
+      "logo": "https://cdn.nba.com/logos/nba/1610612762/primary/L/logo.png",
+      "logo_small": "https://cdn.nba.com/logos/nba/1610612762/primary/S/logo.png",
       "players": [
         {
           "name": "Mike Conley",
@@ -45509,8 +45509,8 @@
       "nickname": "Grizzlies",
       "city": "Memphis",
       "abbreviation": "MEM",
-      "logo": "https://cdn.nba.com/logos/nba/1610612763/global/L/logo.svg",
-      "logo_small": "https://cdn.nba.com/logos/nba/1610612763/global/S/logo.svg",
+      "logo": "https://cdn.nba.com/logos/nba/1610612763/primary/L/logo.png",
+      "logo_small": "https://cdn.nba.com/logos/nba/1610612763/primary/S/logo.png",
       "players": [
         {
           "name": "Byron Scott",
@@ -46764,8 +46764,8 @@
       "nickname": "Wizards",
       "city": "Washington",
       "abbreviation": "WAS",
-      "logo": "https://cdn.nba.com/logos/nba/1610612764/global/L/logo.svg",
-      "logo_small": "https://cdn.nba.com/logos/nba/1610612764/global/S/logo.svg",
+      "logo": "https://cdn.nba.com/logos/nba/1610612764/primary/L/logo.png",
+      "logo_small": "https://cdn.nba.com/logos/nba/1610612764/primary/S/logo.png",
       "players": [
         {
           "name": "Will Riley",
@@ -48891,8 +48891,8 @@
       "nickname": "Pistons",
       "city": "Detroit",
       "abbreviation": "DET",
-      "logo": "https://cdn.nba.com/logos/nba/1610612765/global/L/logo.svg",
-      "logo_small": "https://cdn.nba.com/logos/nba/1610612765/global/S/logo.svg",
+      "logo": "https://cdn.nba.com/logos/nba/1610612765/primary/L/logo.png",
+      "logo_small": "https://cdn.nba.com/logos/nba/1610612765/primary/S/logo.png",
       "players": [
         {
           "name": "Grant Long",
@@ -51190,8 +51190,8 @@
       "nickname": "Hornets",
       "city": "Charlotte",
       "abbreviation": "CHA",
-      "logo": "https://cdn.nba.com/logos/nba/1610612766/global/L/logo.svg",
-      "logo_small": "https://cdn.nba.com/logos/nba/1610612766/global/S/logo.svg",
+      "logo": "https://cdn.nba.com/logos/nba/1610612766/primary/L/logo.png",
+      "logo_small": "https://cdn.nba.com/logos/nba/1610612766/primary/S/logo.png",
       "players": [
         {
           "name": "Lorenzo Williams",

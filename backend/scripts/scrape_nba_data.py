@@ -82,11 +82,12 @@ def get_team_logo_url(team_id: int, size: str = "L") -> str:
         size: Logo size - "L" (large), "D" (default/medium), "S" (small)
 
     Returns:
-        URL to the team's logo on NBA CDN
+        URL to the team's logo on NBA CDN (PNG format for Flutter compatibility)
     """
-    # NBA.com CDN pattern for team logos
+    # NBA.com CDN pattern for team logos (using primary/ for PNG format)
+    # SVG is at /global/, PNG is at /primary/
     # Available sizes: L (large), D (default), S (small)
-    return f"https://cdn.nba.com/logos/nba/{team_id}/global/{size}/logo.svg"
+    return f"https://cdn.nba.com/logos/nba/{team_id}/primary/{size}/logo.png"
 
 
 def transform_data(teams: list[dict], players_by_team: dict[int, list[dict]]) -> dict:
