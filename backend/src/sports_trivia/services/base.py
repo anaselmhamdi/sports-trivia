@@ -55,6 +55,17 @@ class SportDataService(Protocol):
         """
         ...
 
+    def find_common_players_multi(self, clubs: list[str]) -> list[str]:
+        """Find players who played for ALL specified clubs.
+
+        Args:
+            clubs: List of 2-4 club/team names.
+
+        Returns:
+            Sorted list of player names who played for all specified clubs.
+        """
+        ...
+
     def get_club_players(self, name: str) -> list[str]:
         """Get all players who have played for a club.
 

@@ -17,6 +17,11 @@ class ClientEvent(str, Enum):
     LEAVE_ROOM = "leave_room"
     SYNC_STATE = "sync_state"  # Request full state sync (reconnection)
     PING = "ping"  # Keep-alive ping
+    # Multiplayer events
+    START_GAME = (
+        "start_game"  # Host starts game (multiplayer: WAITING_FOR_PLAYERS → WAITING_FOR_CLUBS)
+    )
+    START_ROUND = "start_round"  # Host starts round (WAITING_FOR_CLUBS → GUESSING)
 
 
 class ServerEvent(str, Enum):
@@ -35,6 +40,10 @@ class ServerEvent(str, Enum):
     ERROR = "error"
     STATE_SYNC = "state_sync"  # Full state sync for reconnection
     PONG = "pong"  # Keep-alive pong response
+    # Multiplayer events
+    GAME_STARTED = "game_started"  # Multiplayer game started (WAITING_FOR_CLUBS)
+    POOL_UPDATED = "pool_updated"  # Club added to pool (multiplayer)
+    SELECTION_FAILED = "selection_failed"  # Could not find clubs with common players
 
 
 class WebSocketMessage(BaseModel):

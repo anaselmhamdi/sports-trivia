@@ -49,6 +49,9 @@ class GameNotifier extends StateNotifier<GameState> {
         roomCode: e.roomCode,
         self: e.player,
         sport: e.sport,
+        mode: e.mode,
+        maxPlayers: e.maxPlayers,
+        hostId: e.hostId,
       );
     });
 
@@ -59,8 +62,13 @@ class GameNotifier extends StateNotifier<GameState> {
         roomCode: e.roomCode,
         self: e.self,
         opponent: e.opponent,
+        allPlayers: e.players,
         sport: e.sport,
+        mode: e.mode,
+        maxPlayers: e.maxPlayers,
+        hostId: e.hostId,
         phase: e.phase,
+        poolSize: e.poolSize,
       );
     });
 
@@ -69,9 +77,14 @@ class GameNotifier extends StateNotifier<GameState> {
       state = _orchestrator.onOpponentJoined(state, e.player, e.phase);
     });
 
-    // Opponent left
+    // Player left
     _subscribe(_ws.onPlayerLeft, (e) {
-      state = _orchestrator.onOpponentLeft(state);
+      state = _orchestrator.onPlayerLeft(
+        state,
+        e.playerId,
+        newHostId: e.newHostId,
+        updatedPlayers: e.players.isNotEmpty ? e.players : null,
+      );
     });
 
     // Someone submitted a club
@@ -92,9 +105,26 @@ class GameNotifier extends StateNotifier<GameState> {
         club2: e.club2,
         club1Logo: e.club1Info?.logoUrl,
         club2Logo: e.club2Info?.logoUrl,
+        clubs: e.clubs,
+        clubLogos: e.clubInfoList.map((c) => c.logoUrl).toList(),
         deadline: e.deadline,
         validAnswerCount: e.validAnswerCount,
       );
+    });
+
+    // Multiplayer: Game started by host
+    _subscribe(_ws.onGameStarted, (e) {
+      state = _orchestrator.onGameStarted(state, e.phase);
+    });
+
+    // Multiplayer: Pool updated
+    _subscribe(_ws.onPoolUpdated, (e) {
+      state = _orchestrator.onPoolUpdated(state, e.playerId, e.club, e.poolSize);
+    });
+
+    // Multiplayer: Selection failed
+    _subscribe(_ws.onSelectionFailed, (e) {
+      state = _orchestrator.onSelectionFailed(state, e.error, poolCleared: e.poolCleared);
     });
 
     // Guess result feedback
@@ -146,6 +176,9 @@ class GameNotifier extends StateNotifier<GameState> {
         version: e.version,
         roomCode: e.roomCode,
         sport: e.sport,
+        mode: e.mode,
+        maxPlayers: e.maxPlayers,
+        hostId: e.hostId,
         phase: e.phase,
         myClub: e.myClub,
         opponentClub: e.opponentClub,
@@ -153,6 +186,10 @@ class GameNotifier extends StateNotifier<GameState> {
         validAnswerCount: e.validAnswerCount,
         selfPlayer: e.selfPlayer,
         opponent: e.opponent,
+        allPlayers: e.allPlayers,
+        poolSize: e.poolSize,
+        selectedClubs: e.selectedClubs,
+        clubsPerRound: e.clubsPerRound,
       );
     });
   }
@@ -173,10 +210,11 @@ class GameNotifier extends StateNotifier<GameState> {
   }
 
   /// Create a new room
-  Future<void> createRoom(String playerName, SportType sport) async {
+  Future<void> createRoom(String playerName, SportType sport, {GameMode mode = GameMode.classic, int maxPlayers = 2}) async {
     await connect();
     state = _orchestrator.onSportChanged(state, sport);
-    _ws.createRoom(playerName, sport);
+    state = _orchestrator.onModeChanged(state, mode);
+    _ws.createRoom(playerName, sport, mode: mode, maxPlayers: maxPlayers);
   }
 
   /// Join an existing room
@@ -212,6 +250,21 @@ class GameNotifier extends StateNotifier<GameState> {
   /// Change sport selection (before creating room)
   void setSport(SportType sport) {
     state = _orchestrator.onSportChanged(state, sport);
+  }
+
+  /// Change mode selection (before creating room)
+  void setMode(GameMode mode) {
+    state = _orchestrator.onModeChanged(state, mode);
+  }
+
+  /// Start game (multiplayer, host only)
+  void startGame() {
+    _ws.startGame();
+  }
+
+  /// Start round (multiplayer, host only)
+  void startRound({int clubsPerRound = 2}) {
+    _ws.startRound(clubsPerRound: clubsPerRound);
   }
 
   /// Clear error message

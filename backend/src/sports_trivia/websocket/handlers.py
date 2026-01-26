@@ -9,7 +9,7 @@ from typing import Any
 
 from fastapi import WebSocket
 
-from sports_trivia.models import GamePhase, Room, Sport
+from sports_trivia.models import GameMode, GamePhase, Room, Sport
 from sports_trivia.services.game_manager import GameManager
 from sports_trivia.services.room_manager import RoomManager
 from sports_trivia.websocket.events import ClientEvent, ServerEvent, create_message
@@ -134,6 +134,9 @@ class WebSocketHandler:
             ClientEvent.LEAVE_ROOM.value: self._handle_leave_room,
             ClientEvent.SYNC_STATE.value: self._handle_sync_state,
             ClientEvent.PING.value: self._handle_ping,
+            # Multiplayer events
+            ClientEvent.START_GAME.value: self._handle_start_game,
+            ClientEvent.START_ROUND.value: self._handle_start_round,
         }
 
         handler = handlers.get(event)
@@ -146,6 +149,8 @@ class WebSocketHandler:
         """Handle room creation."""
         player_name = data.get("player_name", "Player 1")
         sport_str = data.get("sport", "nba")
+        mode_str = data.get("mode", "classic")
+        max_players = data.get("max_players", 2)
 
         # Validate player name (strip first, then check)
         player_name = str(player_name).strip()[:MAX_PLAYER_NAME_LENGTH]
@@ -159,10 +164,22 @@ class WebSocketHandler:
             await self._send_error(player_id, f"Invalid sport: {sport_str}")
             return
 
+        try:
+            mode = GameMode(str(mode_str).lower())
+        except ValueError:
+            await self._send_error(player_id, f"Invalid mode: {mode_str}")
+            return
+
+        # Validate max_players
+        try:
+            max_players = int(max_players)
+        except (ValueError, TypeError):
+            max_players = 2
+
         # Leave any existing room first
         await self._leave_current_room(player_id)
 
-        room = self._room_manager.create_room(player_id, player_name, sport)
+        room = self._room_manager.create_room(player_id, player_name, sport, mode, max_players)
         self._connections.set_room(player_id, room.code)
 
         await self._connections.send_to_player(
@@ -171,6 +188,9 @@ class WebSocketHandler:
                 ServerEvent.ROOM_CREATED,
                 room_code=room.code,
                 sport=room.sport.value,
+                mode=room.mode.value,
+                max_players=room.max_players,
+                host_id=room.host_id,
                 player={"id": player_id, "name": player_name, "score": 0},
             ),
         )
@@ -208,12 +228,16 @@ class WebSocketHandler:
                 ServerEvent.ROOM_JOINED,
                 room_code=room.code,
                 sport=room.sport.value,
+                mode=room.mode.value,
+                max_players=room.max_players,
+                host_id=room.host_id,
                 players=[{"id": p.id, "name": p.name, "score": p.score} for p in room.players],
                 phase=room.game_state.phase.value,
+                pool_size=len(room.game_state.club_pool),
             ),
         )
 
-        # Notify other player
+        # Notify other players
         new_player = room.get_player(player_id)
         if new_player:
             await self._connections.broadcast_to_room(
@@ -222,6 +246,7 @@ class WebSocketHandler:
                     ServerEvent.PLAYER_JOINED,
                     player={"id": new_player.id, "name": new_player.name, "score": 0},
                     phase=room.game_state.phase.value,
+                    player_count=len(room.players),
                 ),
                 exclude=player_id,
             )
@@ -252,35 +277,55 @@ class WebSocketHandler:
                 await self._send_error(player_id, result["error"])
                 return
 
-            # Notify all players that a club was submitted
-            await self._connections.broadcast_to_room(
-                room_code,
-                create_message(ServerEvent.CLUB_SUBMITTED, player_id=player_id),
-            )
+            # Route broadcast by mode
+            if room.mode == GameMode.MULTIPLAYER:
+                # Get player name for better UI feedback
+                player = room.get_player(player_id)
+                player_name = player.name if player else None
 
-            # Check if both players have submitted and start guessing
-            if self._game_manager.check_clubs_ready(room):
-                guessing_result = self._game_manager.start_guessing_phase(room)
+                # Multiplayer: broadcast POOL_UPDATED
+                await self._connections.broadcast_to_room(
+                    room_code,
+                    create_message(
+                        ServerEvent.POOL_UPDATED,
+                        player_id=player_id,
+                        player_name=player_name,
+                        club=result.get("club"),
+                        pool_size=result.get("pool_size", len(room.game_state.club_pool)),
+                    ),
+                )
+            else:
+                # Classic: broadcast CLUB_SUBMITTED
+                await self._connections.broadcast_to_room(
+                    room_code,
+                    create_message(ServerEvent.CLUB_SUBMITTED, player_id=player_id),
+                )
 
-                if guessing_result["success"]:
-                    await self._connections.broadcast_to_room(
-                        room_code,
-                        create_message(
-                            ServerEvent.GUESSING_STARTED,
-                            clubs=guessing_result["clubs"],
-                            club_info=guessing_result.get("club_info"),
-                            deadline=guessing_result["deadline"],
-                            valid_count=guessing_result["valid_count"],
-                        ),
-                    )
-                    # Start timeout task
-                    self._start_timeout_task(room_code, guessing_result["deadline"])
-                else:
-                    # No common players, notify and reset
-                    await self._connections.broadcast_to_room(
-                        room_code,
-                        create_message(ServerEvent.CLUBS_INVALID, error=guessing_result["error"]),
-                    )
+                # Check if both players have submitted and start guessing (classic only)
+                if self._game_manager.check_clubs_ready(room):
+                    guessing_result = self._game_manager.start_guessing_phase(room)
+
+                    if guessing_result["success"]:
+                        await self._connections.broadcast_to_room(
+                            room_code,
+                            create_message(
+                                ServerEvent.GUESSING_STARTED,
+                                clubs=guessing_result["clubs"],
+                                club_info=guessing_result.get("club_info"),
+                                deadline=guessing_result["deadline"],
+                                valid_count=guessing_result["valid_count"],
+                            ),
+                        )
+                        # Start timeout task
+                        self._start_timeout_task(room_code, guessing_result["deadline"])
+                    else:
+                        # No common players, notify and reset
+                        await self._connections.broadcast_to_room(
+                            room_code,
+                            create_message(
+                                ServerEvent.CLUBS_INVALID, error=guessing_result["error"]
+                            ),
+                        )
 
     async def _handle_submit_guess(self, player_id: str, data: dict[str, Any]) -> None:
         """Handle player name guess."""
@@ -329,20 +374,12 @@ class WebSocketHandler:
                     room.game_state.valid_answers
                 )
 
-                # DEBUG: Log the player details
-                logger.info("=== ROUND ENDED DEBUG ===")
-                logger.info(f"valid_answers: {room.game_state.valid_answers[:5]}...")  # First 5
-                logger.info(f"valid_answer_details: {valid_answer_details[:3]}...")  # First 3
-                logger.info("=========================")
-
                 # Get winning answer image
                 winning_answer_image = None
                 for detail in valid_answer_details:
                     if detail["name"].lower() == result["answer"].lower():
                         winning_answer_image = detail.get("image_url")
                         break
-
-                logger.info(f"winning_answer_image: {winning_answer_image}")
 
                 await self._connections.broadcast_to_room(
                     room_code,
@@ -369,11 +406,41 @@ class WebSocketHandler:
 
         # Serialize all state mutations with per-room lock
         async with room.get_lock():
-            result = self._game_manager.start_new_round(room)
-            if result["success"]:
+            result = self._game_manager.start_new_round(room, player_id)
+            if not result["success"]:
+                await self._send_error(player_id, result.get("error", "Failed to start new round"))
+                return
+
+            if room.mode == GameMode.MULTIPLAYER:
+                # Multiplayer: instant re-pick from pool, guessing starts immediately
+                if result.get("clubs"):
+                    await self._connections.broadcast_to_room(
+                        room_code,
+                        create_message(
+                            ServerEvent.GUESSING_STARTED,
+                            clubs=result["clubs"],
+                            club_info=result.get("club_info"),
+                            club_submitters=result.get("club_submitters"),
+                            deadline=result["deadline"],
+                            valid_count=result["valid_count"],
+                            fallback_club_count=result.get("fallback_club_count"),
+                        ),
+                    )
+                    self._start_timeout_task(room_code, result["deadline"])
+                else:
+                    # Selection failed - need more clubs or manual retry
+                    await self._connections.broadcast_to_room(
+                        room_code,
+                        create_message(
+                            ServerEvent.SELECTION_FAILED,
+                            error=result.get("error", "Could not find clubs with common players"),
+                        ),
+                    )
+            else:
+                # Classic: broadcast NEW_ROUND
                 await self._connections.broadcast_to_room(
                     room_code,
-                    create_message(ServerEvent.NEW_ROUND, phase=result["phase"].value),
+                    create_message(ServerEvent.NEW_ROUND, phase=result["phase"]),
                 )
 
     async def _handle_leave_room(self, player_id: str, _data: dict[str, Any]) -> None:
@@ -394,12 +461,10 @@ class WebSocketHandler:
             await self._send_error(player_id, "Player not found in room")
             return
 
-        opponent = next((p for p in room.players if p.id != player_id), None)
-
-        # Build player-specific club assignments
+        # Build player-specific club assignments (for classic mode)
         my_club = None
         opponent_club = None
-        if room.game_state.clubs:
+        if room.mode == GameMode.CLASSIC and room.game_state.clubs:
             # Explicitly assign clubs based on player order
             if room.players[0].id == player_id:
                 my_club = room.game_state.clubs[0]
@@ -408,34 +473,51 @@ class WebSocketHandler:
                 my_club = room.game_state.clubs[1]
                 opponent_club = room.game_state.clubs[0]
 
-        # Send full state snapshot
-        await self._connections.send_to_player(
-            player_id,
-            create_message(
-                ServerEvent.STATE_SYNC,
-                version=room.game_state.version,
-                room_code=room_code,
-                sport=room.sport.value,
-                phase=room.game_state.phase.value,
-                my_club=my_club,
-                opponent_club=opponent_club,
-                deadline=room.game_state.deadline,
-                valid_answer_count=room.game_state.valid_answer_count,
-                self_player={
-                    "id": player.id,
-                    "name": player.name,
-                    "score": player.score,
-                    "submitted": player.submitted_club is not None,
-                },
-                opponent={
+        # Build state sync message
+        sync_data: dict[str, Any] = {
+            "version": room.game_state.version,
+            "room_code": room_code,
+            "sport": room.sport.value,
+            "mode": room.mode.value,
+            "max_players": room.max_players,
+            "host_id": room.host_id,
+            "phase": room.game_state.phase.value,
+            "deadline": room.game_state.deadline,
+            "valid_answer_count": room.game_state.valid_answer_count,
+            "self_player": {
+                "id": player.id,
+                "name": player.name,
+                "score": player.score,
+                "submitted": player.submitted_club is not None,
+            },
+            "players": [{"id": p.id, "name": p.name, "score": p.score} for p in room.players],
+        }
+
+        if room.mode == GameMode.MULTIPLAYER:
+            # Multiplayer-specific state
+            sync_data["pool_size"] = len(room.game_state.club_pool)
+            sync_data["selected_clubs"] = room.game_state.selected_clubs
+            sync_data["clubs_per_round"] = room.game_state.clubs_per_round
+        else:
+            # Classic mode state
+            sync_data["my_club"] = my_club
+            sync_data["opponent_club"] = opponent_club
+            opponent = next((p for p in room.players if p.id != player_id), None)
+            sync_data["opponent"] = (
+                {
                     "id": opponent.id,
                     "name": opponent.name,
                     "score": opponent.score,
                     "submitted": opponent.submitted_club is not None,
                 }
                 if opponent
-                else None,
-            ),
+                else None
+            )
+
+        # Send full state snapshot
+        await self._connections.send_to_player(
+            player_id,
+            create_message(ServerEvent.STATE_SYNC, **sync_data),
         )
 
     async def _handle_ping(self, player_id: str, _data: dict[str, Any]) -> None:
@@ -446,19 +528,112 @@ class WebSocketHandler:
             create_message(ServerEvent.PONG),
         )
 
+    async def _handle_start_game(self, player_id: str, _data: dict[str, Any]) -> None:
+        """Handle start game request (multiplayer only, host only)."""
+        result = await self._get_player_room(player_id)
+        if not result:
+            return
+        room_code, room = result
+
+        self._room_manager.touch_room(room_code)
+
+        # Serialize all state mutations with per-room lock
+        async with room.get_lock():
+            result = self._game_manager.start_game(room, player_id)
+
+            if not result["success"]:
+                await self._send_error(player_id, result["error"])
+                return
+
+            # Broadcast that game started
+            await self._connections.broadcast_to_room(
+                room_code,
+                create_message(
+                    ServerEvent.GAME_STARTED,
+                    phase=result["phase"],
+                    host_id=room.host_id,
+                ),
+            )
+
+    async def _handle_start_round(self, player_id: str, data: dict[str, Any]) -> None:
+        """Handle start round request (multiplayer only, host only)."""
+        result = await self._get_player_room(player_id)
+        if not result:
+            return
+        room_code, room = result
+
+        clubs_per_round = data.get("clubs_per_round", 2)
+        try:
+            clubs_per_round = int(clubs_per_round)
+        except (ValueError, TypeError):
+            clubs_per_round = 2
+
+        self._room_manager.touch_room(room_code)
+
+        # Serialize all state mutations with per-room lock
+        async with room.get_lock():
+            result = self._game_manager.start_round(room, player_id, clubs_per_round)
+
+            if not result["success"]:
+                # Check if selection failed
+                if result.get("error", "").startswith("Could not find"):
+                    # Clear pool and reset player submissions so they can try again
+                    room.game_state.club_pool = []
+                    for player in room.players:
+                        player.submitted_club = None
+
+                    await self._connections.broadcast_to_room(
+                        room_code,
+                        create_message(
+                            ServerEvent.SELECTION_FAILED,
+                            error=result["error"],
+                            pool_cleared=True,
+                        ),
+                    )
+                else:
+                    await self._send_error(player_id, result["error"])
+                return
+
+            # Broadcast guessing started
+            await self._connections.broadcast_to_room(
+                room_code,
+                create_message(
+                    ServerEvent.GUESSING_STARTED,
+                    clubs=result["clubs"],
+                    club_info=result.get("club_info"),
+                    club_submitters=result.get("club_submitters"),
+                    deadline=result["deadline"],
+                    valid_count=result["valid_count"],
+                    fallback_club_count=result.get("fallback_club_count"),
+                ),
+            )
+            # Start timeout task
+            self._start_timeout_task(room_code, result["deadline"])
+
     async def _handle_disconnect(self, player_id: str) -> None:
         """Handle player disconnect."""
         room_code = self._connections.disconnect(player_id)
         if room_code:
+            # Check if this player was the host before leaving
+            room_before = self._room_manager.get_room(room_code)
+            was_host = room_before and room_before.host_id == player_id
+
             room, removed_player = self._room_manager.leave_room(room_code, player_id)
             if removed_player and room:
+                # Include updated players list and new host_id if host changed
+                message_data = {
+                    "player_id": player_id,
+                    "phase": room.game_state.phase.value,
+                    "players": [
+                        {"id": p.id, "name": p.name, "score": p.score} for p in room.players
+                    ],
+                }
+                if was_host and room.host_id:
+                    message_data["new_host_id"] = room.host_id
+
                 await self._connections.broadcast_to_room(
                     room_code,
-                    create_message(
-                        ServerEvent.PLAYER_LEFT,
-                        player_id=player_id,
-                        phase=room.game_state.phase.value,
-                    ),
+                    create_message(ServerEvent.PLAYER_LEFT, **message_data),
                 )
             # Cancel any pending timeout
             self._cancel_timeout_task(room_code)
@@ -486,15 +661,26 @@ class WebSocketHandler:
         """Leave current room if in one (cleanup before joining/creating another)."""
         current_room_code = self._connections.get_room(player_id)
         if current_room_code:
+            # Check if this player was the host before leaving
+            room_before = self._room_manager.get_room(current_room_code)
+            was_host = room_before and room_before.host_id == player_id
+
             room, removed_player = self._room_manager.leave_room(current_room_code, player_id)
             if removed_player and room:
+                # Include updated players list and new host_id if host changed
+                message_data = {
+                    "player_id": player_id,
+                    "phase": room.game_state.phase.value,
+                    "players": [
+                        {"id": p.id, "name": p.name, "score": p.score} for p in room.players
+                    ],
+                }
+                if was_host and room.host_id:
+                    message_data["new_host_id"] = room.host_id
+
                 await self._connections.broadcast_to_room(
                     current_room_code,
-                    create_message(
-                        ServerEvent.PLAYER_LEFT,
-                        player_id=player_id,
-                        phase=room.game_state.phase.value,
-                    ),
+                    create_message(ServerEvent.PLAYER_LEFT, **message_data),
                 )
             self._cancel_timeout_task(current_room_code)
 

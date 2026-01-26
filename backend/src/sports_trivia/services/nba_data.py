@@ -326,6 +326,60 @@ class NBADataService:
 
         return []
 
+    def find_common_players_multi(self, teams: list[str]) -> list[str]:
+        """Find players who played for ALL specified teams.
+
+        Args:
+            teams: List of 2-4 team names.
+
+        Returns:
+            Sorted list of player names who played for all teams.
+        """
+        if len(teams) < 2:
+            return []
+
+        # For 2 teams, use optimized method
+        if len(teams) == 2:
+            return self.find_common_players(teams[0], teams[1])
+
+        # For 3+ teams, intersect all player sets
+        data = _load_scraped_data()
+        if data:
+            player_sets: list[set[str]] = []
+            for team in teams:
+                team_key = _get_team_key_from_scraped(team)
+                if not team_key or team_key not in data["teams"]:
+                    logger.warning(f"Team not found in scraped data: {team}")
+                    return []
+
+                raw_players = data["teams"][team_key]["players"]
+                if raw_players and isinstance(raw_players[0], dict):
+                    player_sets.append({p["name"] for p in raw_players})
+                else:
+                    player_sets.append(set(raw_players))
+
+            # Intersect all sets
+            common = player_sets[0]
+            for ps in player_sets[1:]:
+                common = common & ps
+
+            logger.info(f"Found {len(common)} common players for {len(teams)} teams (scraped data)")
+            return sorted(common)
+
+        # Fall back to mock data
+        player_sets_mock: list[set[str]] = []
+        for team in teams:
+            normalized = self._normalize_team_name(team)
+            if normalized not in self.MOCK_TEAMS:
+                return []
+            player_sets_mock.append(set(self.MOCK_TEAMS[normalized]))
+
+        common = player_sets_mock[0]
+        for ps in player_sets_mock[1:]:
+            common = common & ps
+
+        return sorted(common)
+
     def _normalize_team_name(self, team_name: str) -> str:
         """Normalize team name for lookups."""
         lower = team_name.lower().strip()

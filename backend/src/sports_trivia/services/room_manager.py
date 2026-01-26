@@ -7,7 +7,7 @@ import random
 import string
 from datetime import datetime, timedelta
 
-from sports_trivia.models import GameState, Player, Room, Sport
+from sports_trivia.models import GameMode, GameState, Player, Room, Sport
 
 logger = logging.getLogger(__name__)
 
@@ -31,10 +31,39 @@ class RoomManager:
             if code not in self._rooms:
                 return code
 
-    def create_room(self, player_id: str, player_name: str, sport: Sport) -> Room:
-        """Create a new room and add the first player."""
+    def create_room(
+        self,
+        player_id: str,
+        player_name: str,
+        sport: Sport,
+        mode: GameMode = GameMode.CLASSIC,
+        max_players: int = 2,
+    ) -> Room:
+        """Create a new room and add the first player.
+
+        Args:
+            player_id: ID of the player creating the room (becomes host).
+            player_name: Display name of the player.
+            sport: The sport for this room (NBA, soccer).
+            mode: Game mode (classic 1v1 or multiplayer).
+            max_players: Maximum players (2 for classic, 2-10 for multiplayer).
+
+        Returns:
+            The created Room object.
+        """
         code = self._generate_room_code()
-        room = Room(code=code, sport=sport, game_state=GameState())
+
+        # Validate and constrain max_players based on mode
+        max_players = 2 if mode == GameMode.CLASSIC else max(2, min(10, max_players))
+
+        room = Room(
+            code=code,
+            sport=sport,
+            mode=mode,
+            max_players=max_players,
+            host_id=player_id,
+            game_state=GameState(),
+        )
         player = Player(id=player_id, name=player_name)
         room.add_player(player)
         self._rooms[code] = room

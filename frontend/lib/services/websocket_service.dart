@@ -20,6 +20,10 @@ class WsEventType {
   static const String gameError = 'error';
   static const String pong = 'pong';
   static const String stateSync = 'state_sync';
+  // Multiplayer events
+  static const String gameStarted = 'game_started';
+  static const String poolUpdated = 'pool_updated';
+  static const String selectionFailed = 'selection_failed';
 }
 
 /// WebSocket action types to server
@@ -32,6 +36,9 @@ class WsActionType {
   static const String leaveRoom = 'leave_room';
   static const String ping = 'ping';
   static const String syncState = 'sync_state';
+  // Multiplayer actions
+  static const String startGame = 'start_game';
+  static const String startRound = 'start_round';
 }
 
 /// Event data classes
@@ -39,11 +46,17 @@ class RoomCreatedEvent {
   final String roomCode;
   final Player player;
   final SportType sport;
+  final GameMode mode;
+  final int maxPlayers;
+  final String hostId;
 
   RoomCreatedEvent({
     required this.roomCode,
     required this.player,
     required this.sport,
+    required this.mode,
+    required this.maxPlayers,
+    required this.hostId,
   });
 
   factory RoomCreatedEvent.fromJson(Map<String, dynamic> json) {
@@ -51,6 +64,9 @@ class RoomCreatedEvent {
       roomCode: json['room_code'] as String,
       player: Player.fromJson(json['player'] as Map<String, dynamic>),
       sport: SportType.fromString(json['sport'] as String? ?? 'soccer'),
+      mode: GameMode.fromString(json['mode'] as String? ?? 'classic'),
+      maxPlayers: json['max_players'] as int? ?? 2,
+      hostId: json['host_id'] as String? ?? '',
     );
   }
 }
@@ -59,19 +75,27 @@ class RoomJoinedEvent {
   final String roomCode;
   final List<Player> players;
   final SportType sport;
+  final GameMode mode;
+  final int maxPlayers;
+  final String hostId;
   final String phase;
+  final int poolSize;
 
   RoomJoinedEvent({
     required this.roomCode,
     required this.players,
     required this.sport,
+    required this.mode,
+    required this.maxPlayers,
+    required this.hostId,
     required this.phase,
+    this.poolSize = 0,
   });
 
   /// Get self (last player in array is the joining player)
   Player get self => players.last;
 
-  /// Get opponent if exists
+  /// Get opponent if exists (for classic mode compatibility)
   Player? get opponent => players.length > 1 ? players.first : null;
 
   factory RoomJoinedEvent.fromJson(Map<String, dynamic> json) {
@@ -83,7 +107,11 @@ class RoomJoinedEvent {
       roomCode: json['room_code'] as String,
       players: playersList,
       sport: SportType.fromString(json['sport'] as String? ?? 'soccer'),
+      mode: GameMode.fromString(json['mode'] as String? ?? 'classic'),
+      maxPlayers: json['max_players'] as int? ?? 2,
+      hostId: json['host_id'] as String? ?? '',
       phase: json['phase'] as String? ?? 'lobby',
+      poolSize: json['pool_size'] as int? ?? 0,
     );
   }
 }
@@ -105,13 +133,25 @@ class PlayerJoinedEvent {
 class PlayerLeftEvent {
   final String playerId;
   final String? playerName;
+  final String? newHostId;
+  final List<Player> players;
 
-  PlayerLeftEvent({required this.playerId, this.playerName});
+  PlayerLeftEvent({
+    required this.playerId,
+    this.playerName,
+    this.newHostId,
+    this.players = const [],
+  });
 
   factory PlayerLeftEvent.fromJson(Map<String, dynamic> json) {
+    final playersList = (json['players'] as List<dynamic>?)
+        ?.map((e) => Player.fromJson(e as Map<String, dynamic>))
+        .toList() ?? [];
     return PlayerLeftEvent(
       playerId: json['player_id'] as String,
       playerName: json['player_name'] as String?,
+      newHostId: json['new_host_id'] as String?,
+      players: playersList,
     );
   }
 }
@@ -179,32 +219,54 @@ class GuessingStartedEvent {
   final String club2;
   final ClubDetails? club1Info;
   final ClubDetails? club2Info;
+  final List<String> clubs;  // All selected clubs (2-4)
+  final List<ClubDetails> clubInfoList;  // Info for all clubs
+  final Map<String, String> clubSubmitters;  // club -> playerId who submitted
   final DateTime deadline;
   final int validAnswerCount;
+  final int? fallbackClubCount;  // If we fell back to fewer clubs
 
   GuessingStartedEvent({
     required this.club1,
     required this.club2,
     this.club1Info,
     this.club2Info,
+    required this.clubs,
+    required this.clubInfoList,
+    this.clubSubmitters = const {},
     required this.deadline,
     required this.validAnswerCount,
+    this.fallbackClubCount,
   });
 
   factory GuessingStartedEvent.fromJson(Map<String, dynamic> json) {
-    // Backend sends clubs as a tuple/array ["club1", "club2"]
-    final clubs = json['clubs'] as List<dynamic>? ?? [];
+    // Backend sends clubs as a tuple/array ["club1", "club2", ...]
+    final clubsList = (json['clubs'] as List<dynamic>?)
+        ?.map((e) => e as String)
+        .toList() ?? [];
 
-    // Backend sends club_info as a tuple/array [{...}, {...}]
-    final clubInfoList = json['club_info'] as List<dynamic>?;
+    // Backend sends club_info as a tuple/array [{...}, {...}, ...]
+    final clubInfoJsonList = json['club_info'] as List<dynamic>?;
+    final clubDetailsList = <ClubDetails>[];
     ClubDetails? club1Info;
     ClubDetails? club2Info;
-    if (clubInfoList != null && clubInfoList.isNotEmpty) {
-      club1Info = ClubDetails.fromJson(clubInfoList[0] as Map<String, dynamic>?);
-      if (clubInfoList.length > 1) {
-        club2Info = ClubDetails.fromJson(clubInfoList[1] as Map<String, dynamic>?);
+    if (clubInfoJsonList != null) {
+      for (final info in clubInfoJsonList) {
+        clubDetailsList.add(ClubDetails.fromJson(info as Map<String, dynamic>?));
+      }
+      if (clubDetailsList.isNotEmpty) {
+        club1Info = clubDetailsList[0];
+      }
+      if (clubDetailsList.length > 1) {
+        club2Info = clubDetailsList[1];
       }
     }
+
+    // Parse club submitters (multiplayer)
+    final submittersJson = json['club_submitters'] as Map<String, dynamic>?;
+    final clubSubmitters = submittersJson?.map(
+      (k, v) => MapEntry(k, v as String),
+    ) ?? {};
 
     // Backend sends deadline as Unix timestamp (float)
     final deadlineValue = json['deadline'];
@@ -218,12 +280,16 @@ class GuessingStartedEvent {
     }
 
     return GuessingStartedEvent(
-      club1: clubs.isNotEmpty ? clubs[0] as String : '',
-      club2: clubs.length > 1 ? clubs[1] as String : '',
+      club1: clubsList.isNotEmpty ? clubsList[0] : '',
+      club2: clubsList.length > 1 ? clubsList[1] : '',
       club1Info: club1Info,
       club2Info: club2Info,
+      clubs: clubsList,
+      clubInfoList: clubDetailsList,
+      clubSubmitters: clubSubmitters,
       deadline: deadline,
       validAnswerCount: json['valid_count'] as int? ?? 0,
+      fallbackClubCount: json['fallback_club_count'] as int?,
     );
   }
 }
@@ -286,12 +352,6 @@ class RoundEndedEvent {
   bool get isTimeout => winnerId == null;
 
   factory RoundEndedEvent.fromJson(Map<String, dynamic> json) {
-    // DEBUG: Log raw round_ended data
-    debugPrint('=== ROUND_ENDED RAW DATA ===');
-    debugPrint('winning_answer_image: ${json['winning_answer_image']}');
-    debugPrint('valid_answer_details: ${json['valid_answer_details']}');
-    debugPrint('===========================');
-
     return RoundEndedEvent(
       winnerId: json['winner_id'] as String?,
       winningAnswer: json['winning_answer'] as String?,
@@ -341,11 +401,68 @@ class NewRoundEvent {
   }
 }
 
+/// Multiplayer: Game started by host (WAITING_FOR_PLAYERS → WAITING_FOR_CLUBS)
+class GameStartedEvent {
+  final String phase;
+  final String hostId;
+
+  GameStartedEvent({required this.phase, required this.hostId});
+
+  factory GameStartedEvent.fromJson(Map<String, dynamic> json) {
+    return GameStartedEvent(
+      phase: json['phase'] as String? ?? 'waiting_for_clubs',
+      hostId: json['host_id'] as String? ?? '',
+    );
+  }
+}
+
+/// Multiplayer: Club added to pool
+class PoolUpdatedEvent {
+  final String playerId;
+  final String? playerName;
+  final String club;
+  final int poolSize;
+
+  PoolUpdatedEvent({
+    required this.playerId,
+    this.playerName,
+    required this.club,
+    required this.poolSize,
+  });
+
+  factory PoolUpdatedEvent.fromJson(Map<String, dynamic> json) {
+    return PoolUpdatedEvent(
+      playerId: json['player_id'] as String? ?? '',
+      playerName: json['player_name'] as String?,
+      club: json['club'] as String? ?? '',
+      poolSize: json['pool_size'] as int? ?? 0,
+    );
+  }
+}
+
+/// Multiplayer: Selection failed - no common players found
+class SelectionFailedEvent {
+  final String error;
+  final bool poolCleared;
+
+  SelectionFailedEvent({required this.error, this.poolCleared = false});
+
+  factory SelectionFailedEvent.fromJson(Map<String, dynamic> json) {
+    return SelectionFailedEvent(
+      error: json['error'] as String? ?? 'Could not find clubs with common players',
+      poolCleared: json['pool_cleared'] as bool? ?? false,
+    );
+  }
+}
+
 /// Full state sync event for reconnection
 class StateSyncEvent {
   final int version;
   final String roomCode;
   final SportType sport;
+  final GameMode mode;
+  final int maxPlayers;
+  final String hostId;
   final String phase;
   final String? myClub;
   final String? opponentClub;
@@ -353,11 +470,19 @@ class StateSyncEvent {
   final int validAnswerCount;
   final Player selfPlayer;
   final Player? opponent;
+  final List<Player> allPlayers;
+  // Multiplayer-specific
+  final int poolSize;
+  final List<String> selectedClubs;
+  final int clubsPerRound;
 
   StateSyncEvent({
     required this.version,
     required this.roomCode,
     required this.sport,
+    required this.mode,
+    required this.maxPlayers,
+    required this.hostId,
     required this.phase,
     this.myClub,
     this.opponentClub,
@@ -365,6 +490,10 @@ class StateSyncEvent {
     required this.validAnswerCount,
     required this.selfPlayer,
     this.opponent,
+    required this.allPlayers,
+    this.poolSize = 0,
+    this.selectedClubs = const [],
+    this.clubsPerRound = 2,
   });
 
   factory StateSyncEvent.fromJson(Map<String, dynamic> json) {
@@ -386,7 +515,7 @@ class StateSyncEvent {
           )
         : Player(id: '', name: '');
 
-    // Parse opponent
+    // Parse opponent (classic mode)
     Player? opponent;
     final opponentData = json['opponent'] as Map<String, dynamic>?;
     if (opponentData != null) {
@@ -398,10 +527,23 @@ class StateSyncEvent {
       );
     }
 
+    // Parse all players list
+    final playersList = (json['players'] as List<dynamic>?)
+        ?.map((e) => Player.fromJson(e as Map<String, dynamic>))
+        .toList() ?? [];
+
+    // Parse selected clubs (multiplayer)
+    final selectedClubs = (json['selected_clubs'] as List<dynamic>?)
+        ?.map((e) => e as String)
+        .toList() ?? [];
+
     return StateSyncEvent(
       version: json['version'] as int? ?? 0,
       roomCode: json['room_code'] as String? ?? '',
       sport: SportType.fromString(json['sport'] as String? ?? 'soccer'),
+      mode: GameMode.fromString(json['mode'] as String? ?? 'classic'),
+      maxPlayers: json['max_players'] as int? ?? 2,
+      hostId: json['host_id'] as String? ?? '',
       phase: json['phase'] as String? ?? 'waiting_for_players',
       myClub: json['my_club'] as String?,
       opponentClub: json['opponent_club'] as String?,
@@ -409,6 +551,10 @@ class StateSyncEvent {
       validAnswerCount: json['valid_answer_count'] as int? ?? 0,
       selfPlayer: selfPlayer,
       opponent: opponent,
+      allPlayers: playersList,
+      poolSize: json['pool_size'] as int? ?? 0,
+      selectedClubs: selectedClubs,
+      clubsPerRound: json['clubs_per_round'] as int? ?? 2,
     );
   }
 }
@@ -432,6 +578,10 @@ class WebSocketService {
   final _newRoundController = StreamController<NewRoundEvent>.broadcast();
   final _errorController = StreamController<GameErrorEvent>.broadcast();
   final _stateSyncController = StreamController<StateSyncEvent>.broadcast();
+  // Multiplayer controllers
+  final _gameStartedController = StreamController<GameStartedEvent>.broadcast();
+  final _poolUpdatedController = StreamController<PoolUpdatedEvent>.broadcast();
+  final _selectionFailedController = StreamController<SelectionFailedEvent>.broadcast();
 
   // Connection state
   Stream<ConnectionStatus> get connectionState => _connectionStateController.stream;
@@ -449,6 +599,10 @@ class WebSocketService {
   Stream<NewRoundEvent> get onNewRound => _newRoundController.stream;
   Stream<GameErrorEvent> get onError => _errorController.stream;
   Stream<StateSyncEvent> get onStateSync => _stateSyncController.stream;
+  // Multiplayer streams
+  Stream<GameStartedEvent> get onGameStarted => _gameStartedController.stream;
+  Stream<PoolUpdatedEvent> get onPoolUpdated => _poolUpdatedController.stream;
+  Stream<SelectionFailedEvent> get onSelectionFailed => _selectionFailedController.stream;
 
   bool get isConnected => _channel != null;
 
@@ -510,10 +664,12 @@ class WebSocketService {
   }
 
   // Outgoing actions
-  void createRoom(String playerName, SportType sport) {
+  void createRoom(String playerName, SportType sport, {GameMode mode = GameMode.classic, int maxPlayers = 2}) {
     _send(WsActionType.createRoom, {
       'player_name': playerName,
       'sport': sport.apiValue,
+      'mode': mode.apiValue,
+      'max_players': maxPlayers,
     });
   }
 
@@ -547,6 +703,18 @@ class WebSocketService {
   /// Request full state sync from server (e.g., after reconnect)
   void syncState() {
     _send(WsActionType.syncState, {});
+  }
+
+  /// Start game (multiplayer, host only)
+  void startGame() {
+    _send(WsActionType.startGame, {});
+  }
+
+  /// Start round (multiplayer, host only)
+  void startRound({int clubsPerRound = 2}) {
+    _send(WsActionType.startRound, {
+      'clubs_per_round': clubsPerRound,
+    });
   }
 
   // Private methods
@@ -596,6 +764,16 @@ class WebSocketService {
           break;
         case WsEventType.stateSync:
           _stateSyncController.add(StateSyncEvent.fromJson(data));
+          break;
+        // Multiplayer events
+        case WsEventType.gameStarted:
+          _gameStartedController.add(GameStartedEvent.fromJson(data));
+          break;
+        case WsEventType.poolUpdated:
+          _poolUpdatedController.add(PoolUpdatedEvent.fromJson(data));
+          break;
+        case WsEventType.selectionFailed:
+          _selectionFailedController.add(SelectionFailedEvent.fromJson(data));
           break;
         default:
           debugPrint('Unknown event type: $event');
@@ -648,5 +826,9 @@ class WebSocketService {
     _newRoundController.close();
     _errorController.close();
     _stateSyncController.close();
+    // Multiplayer controllers
+    _gameStartedController.close();
+    _poolUpdatedController.close();
+    _selectionFailedController.close();
   }
 }

@@ -20,6 +20,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   final _nameController = TextEditingController();
   final _roomCodeController = TextEditingController();
   SportType _selectedSport = SportType.soccer;
+  GameMode _selectedMode = GameMode.classic;
+  int _maxPlayers = 4;
   bool _isCreating = false;
   bool _isJoining = false;
 
@@ -51,7 +53,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
 
     setState(() => _isCreating = true);
-    await ref.read(gameStateProvider.notifier).createRoom(name, _selectedSport);
+    await ref.read(gameStateProvider.notifier).createRoom(
+      name,
+      _selectedSport,
+      mode: _selectedMode,
+      maxPlayers: _selectedMode == GameMode.multiplayer ? _maxPlayers : 2,
+    );
   }
 
   Future<void> _joinRoom() async {
@@ -73,7 +80,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final gameState = ref.watch(gameStateProvider);
+    // Watch for state changes (triggers rebuilds, navigation handled by ref.listen below)
+    ref.watch(gameStateProvider);
     final screenWidth = MediaQuery.of(context).size.width;
     final isWide = screenWidth > 600;
 
@@ -124,6 +132,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
                   // Sport selector
                   _buildSportSelector(),
+
+                  const SizedBox(height: AppTheme.spaceLg),
+
+                  // Mode selector
+                  _buildModeSelector(),
 
                   const SizedBox(height: AppTheme.space2xl),
 
@@ -219,7 +232,72 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     ).animate().fadeIn(delay: const Duration(milliseconds: 400));
   }
 
+  Widget _buildModeSelector() {
+    return Container(
+      padding: const EdgeInsets.all(AppTheme.spaceSm),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppTheme.radiusFull),
+        border: Border.all(color: AppColors.gray700),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildModeChip(GameMode.classic),
+          const SizedBox(width: AppTheme.spaceSm),
+          _buildModeChip(GameMode.multiplayer),
+        ],
+      ),
+    ).animate().fadeIn(delay: const Duration(milliseconds: 450));
+  }
+
+  Widget _buildModeChip(GameMode mode) {
+    final isSelected = _selectedMode == mode;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _selectedMode = mode;
+          if (mode == GameMode.classic) {
+            _maxPlayers = 2;
+          }
+        });
+        ref.read(gameStateProvider.notifier).setMode(mode);
+      },
+      child: AnimatedContainer(
+        duration: AppTheme.fastDuration,
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppTheme.spaceMd,
+          vertical: AppTheme.spaceSm,
+        ),
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.primary : Colors.transparent,
+          borderRadius: BorderRadius.circular(AppTheme.radiusFull),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              mode.displayName,
+              style: AppTheme.captionStyle.copyWith(
+                color: isSelected ? AppColors.voidBlack : AppColors.textSecondary,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+              ),
+            ),
+            Text(
+              mode == GameMode.classic ? '2 players' : '2-10 players',
+              style: TextStyle(
+                fontSize: 10,
+                color: isSelected ? AppColors.voidBlack.withValues(alpha: 0.7) : AppColors.textSecondary.withValues(alpha: 0.7),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildCreateCard() {
+    final isMultiplayer = _selectedMode == GameMode.multiplayer;
     return Container(
       padding: const EdgeInsets.all(AppTheme.spaceLg),
       decoration: BoxDecoration(
@@ -238,8 +316,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   color: AppColors.primary.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(AppTheme.radiusMd),
                 ),
-                child: const Icon(
-                  Icons.add_circle_outline,
+                child: Icon(
+                  isMultiplayer ? Icons.groups : Icons.add_circle_outline,
                   color: AppColors.primary,
                 ),
               ),
@@ -252,9 +330,38 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
           const SizedBox(height: AppTheme.spaceMd),
           Text(
-            'Start a new game and invite a friend',
+            isMultiplayer
+                ? 'Start a party game with friends'
+                : 'Start a 1v1 game and invite a friend',
             style: AppTheme.captionStyle,
           ),
+          // Max players slider for multiplayer
+          if (isMultiplayer) ...[
+            const SizedBox(height: AppTheme.spaceMd),
+            Row(
+              children: [
+                Text(
+                  'Max players: $_maxPlayers',
+                  style: AppTheme.captionStyle.copyWith(
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                Expanded(
+                  child: Slider(
+                    value: _maxPlayers.toDouble(),
+                    min: 2,
+                    max: 10,
+                    divisions: 8,
+                    activeColor: AppColors.primary,
+                    inactiveColor: AppColors.gray700,
+                    onChanged: (value) {
+                      setState(() => _maxPlayers = value.round());
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: AppTheme.spaceLg),
           ElevatedButton(
             onPressed: _isCreating ? null : _createRoom,

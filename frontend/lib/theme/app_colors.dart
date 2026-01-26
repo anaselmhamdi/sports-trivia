@@ -18,6 +18,7 @@ class AppColors {
   static const Color white = Color(0xFFFFFFFF);
   static const Color gray400 = Color(0xFF9CA3AF);
   static const Color gray500 = Color(0xFF6B7280);
+  static const Color gray600 = Color(0xFF4B5563);
   static const Color gray700 = Color(0xFF374151);
   static const Color gray900 = Color(0xFF111827);
 
@@ -34,6 +35,12 @@ class AppColors {
   static const Color timerCalm = electricCyan;
   static const Color timerWarning = pulseOrange;
   static const Color timerUrgent = lossRed;
+
+  // Medal colors (leaderboard)
+  static const Color gold = Color(0xFFFFD700);
+  static const Color silver = Color(0xFFC0C0C0);
+  static const Color bronze = Color(0xFFCD7F32);
+  static const Color gray800 = Color(0xFF1F2937);
 
   // Glow effect colors (with opacity)
   static Color glowCyan = electricCyan.withValues(alpha: 0.3);

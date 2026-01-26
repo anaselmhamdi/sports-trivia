@@ -3,21 +3,25 @@
 from __future__ import annotations
 
 import logging
+import random
 import time
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import TYPE_CHECKING, Any
 
 from rapidfuzz import fuzz, process
 
 from sports_trivia.config import settings
-from sports_trivia.models import GamePhase, Room, Sport
+from sports_trivia.models import ClubSubmission, GameMode, GamePhase, Room, Sport
 
 logger = logging.getLogger(__name__)
 
 # Minimum fuzzy match score for player names (higher = stricter)
 PLAYER_FUZZY_THRESHOLD = 85
+
+# Maximum retry attempts for selecting clubs with common players
+MAX_SELECTION_RETRIES = 5
 
 
 def strip_accents(text: str) -> str:
@@ -42,10 +46,14 @@ class TransitionResult(Enum):
     INVALID_PHASE = auto()
     ALREADY_SUBMITTED = auto()
     INVALID_CLUB = auto()
+    DUPLICATE_CLUB = auto()  # Club already in pool (multiplayer)
     TIME_EXPIRED = auto()
     NO_COMMON_PLAYERS = auto()
+    SELECTION_FAILED = auto()  # All retry attempts failed (multiplayer)
     PLAYER_NOT_FOUND = auto()
     NOT_READY = auto()
+    NOT_HOST = auto()  # Only host can perform this action
+    INSUFFICIENT_CLUBS = auto()  # Not enough clubs in pool
 
 
 @dataclass
@@ -131,6 +139,60 @@ class SubmitGuessResult:
         }
 
 
+@dataclass
+class SubmitPoolResult:
+    """Result of submitting a club to the multiplayer pool."""
+
+    status: TransitionResult
+    club: str | None = None
+    pool_size: int = 0
+    error: str | None = None
+
+    @property
+    def success(self) -> bool:
+        return self.status == TransitionResult.SUCCESS
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dict."""
+        if self.success:
+            return {"success": True, "club": self.club, "pool_size": self.pool_size}
+        return {"success": False, "error": self.error or self.status.name}
+
+
+@dataclass
+class SelectClubsResult:
+    """Result of selecting clubs from pool for a round."""
+
+    status: TransitionResult
+    clubs: list[str] = field(default_factory=list)
+    club_info: list[dict] = field(default_factory=list)
+    club_submitters: dict[str, str] = field(default_factory=dict)  # club -> player_id
+    deadline: float | None = None
+    valid_count: int = 0
+    fallback_club_count: int | None = None  # If we fell back to fewer clubs
+    error: str | None = None
+
+    @property
+    def success(self) -> bool:
+        return self.status == TransitionResult.SUCCESS
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dict."""
+        if self.success:
+            result = {
+                "success": True,
+                "clubs": self.clubs,
+                "club_info": self.club_info,
+                "club_submitters": self.club_submitters,
+                "deadline": self.deadline,
+                "valid_count": self.valid_count,
+            }
+            if self.fallback_club_count:
+                result["fallback_club_count"] = self.fallback_club_count
+            return result
+        return {"success": False, "error": self.error or self.status.name}
+
+
 class GameManager:
     """Manages game logic and state transitions."""
 
@@ -140,10 +202,75 @@ class GameManager:
     def submit_club(self, room: Room, player_id: str, club_name: str) -> dict:
         """
         Submit a club for the round.
+        Routes to appropriate handler based on game mode.
         Returns a dict with status and any error message.
         """
+        if room.mode == GameMode.MULTIPLAYER:
+            result = self._submit_club_to_pool_atomic(room, player_id, club_name)
+            return result.to_dict()
         result = self._submit_club_atomic(room, player_id, club_name)
         return result.to_dict()
+
+    def _submit_club_to_pool_atomic(
+        self, room: Room, player_id: str, club_name: str
+    ) -> SubmitPoolResult:
+        """Submit a club to the multiplayer pool."""
+        # Validate phase
+        if room.game_state.phase != GamePhase.WAITING_FOR_CLUBS:
+            return SubmitPoolResult(
+                status=TransitionResult.INVALID_PHASE,
+                error="Not in club submission phase",
+            )
+
+        player = room.get_player(player_id)
+        if player is None:
+            return SubmitPoolResult(
+                status=TransitionResult.PLAYER_NOT_FOUND,
+                error="Player not in room",
+            )
+
+        # Check if player already submitted
+        if any(s.player_id == player_id for s in room.game_state.club_pool):
+            return SubmitPoolResult(
+                status=TransitionResult.ALREADY_SUBMITTED,
+                error="Already submitted a club",
+            )
+
+        # Validate club exists
+        data_service = self._get_data_service(room.sport)
+        if not data_service.validate_club(club_name):
+            return SubmitPoolResult(
+                status=TransitionResult.INVALID_CLUB,
+                error=f"Club '{club_name}' not found",
+            )
+
+        # Normalize the club name
+        normalized_club = data_service.normalize_club_name(club_name)
+
+        # Check for duplicate club in pool
+        if any(s.club_name == normalized_club for s in room.game_state.club_pool):
+            return SubmitPoolResult(
+                status=TransitionResult.DUPLICATE_CLUB,
+                error=f"Club '{normalized_club}' already in pool",
+            )
+
+        # Add to pool
+        submission = ClubSubmission(
+            player_id=player_id,
+            club_name=normalized_club,
+            submitted_at=time.time(),
+        )
+        room.game_state.club_pool.append(submission)
+
+        # Also set player.submitted_club for consistency
+        player.submitted_club = normalized_club
+        room.game_state.increment_version()
+
+        return SubmitPoolResult(
+            status=TransitionResult.SUCCESS,
+            club=normalized_club,
+            pool_size=len(room.game_state.club_pool),
+        )
 
     def _submit_club_atomic(self, room: Room, player_id: str, club_name: str) -> SubmitClubResult:
         """Atomic club submission with typed result."""
@@ -183,21 +310,164 @@ class GameManager:
         return SubmitClubResult(status=TransitionResult.SUCCESS, club=normalized_club)
 
     def check_clubs_ready(self, room: Room) -> bool:
-        """Check if both players have submitted clubs."""
+        """Check if clubs are ready to start guessing (classic mode only)."""
+        if room.mode == GameMode.MULTIPLAYER:
+            # Multiplayer uses pool, not player submissions
+            return False
         if len(room.players) != 2:
             return False
         return all(p.submitted_club is not None for p in room.players)
 
+    def start_game(self, room: Room, player_id: str) -> dict:
+        """Start a multiplayer game (host only). Transitions from WAITING_FOR_PLAYERS to WAITING_FOR_CLUBS."""
+        if room.mode != GameMode.MULTIPLAYER:
+            return {"success": False, "error": "start_game only valid for multiplayer"}
+
+        if player_id != room.host_id:
+            return {"success": False, "error": "Only host can start the game"}
+
+        if room.game_state.phase != GamePhase.WAITING_FOR_PLAYERS:
+            return {"success": False, "error": "Game already started"}
+
+        if len(room.players) < 2:
+            return {"success": False, "error": "Need at least 2 players"}
+
+        room.game_state.phase = GamePhase.WAITING_FOR_CLUBS
+        room.game_state.increment_version()
+
+        return {"success": True, "phase": room.game_state.phase.value}
+
+    def start_round(self, room: Room, player_id: str, clubs_per_round: int = 2) -> dict:
+        """Start a round in multiplayer mode by selecting clubs from pool."""
+        if room.mode != GameMode.MULTIPLAYER:
+            return {"success": False, "error": "start_round only valid for multiplayer"}
+
+        if player_id != room.host_id:
+            return {"success": False, "error": "Only host can start the round"}
+
+        result = self._select_clubs_from_pool_atomic(room, clubs_per_round)
+        return result.to_dict()
+
+    def _select_clubs_from_pool_atomic(self, room: Room, clubs_per_round: int) -> SelectClubsResult:
+        """Select clubs from pool and start guessing phase."""
+        # Validate phase
+        if room.game_state.phase != GamePhase.WAITING_FOR_CLUBS:
+            return SelectClubsResult(
+                status=TransitionResult.INVALID_PHASE,
+                error="Not in club submission phase",
+            )
+
+        # Validate clubs_per_round (2-4)
+        clubs_per_round = max(2, min(4, clubs_per_round))
+
+        pool = room.game_state.club_pool
+        pool_size = len(pool)
+
+        # Cap clubs_per_round by pool size
+        actual_club_count = min(clubs_per_round, pool_size)
+
+        if actual_club_count < 2:
+            return SelectClubsResult(
+                status=TransitionResult.INSUFFICIENT_CLUBS,
+                error=f"Need at least 2 clubs in pool (have {pool_size})",
+            )
+
+        data_service = self._get_data_service(room.sport)
+
+        # Try to find clubs with common players
+        # If requested club_count fails, fall back to fewer clubs
+        for target_count in range(actual_club_count, 1, -1):
+            result = self._try_select_clubs(pool, target_count, data_service, room, clubs_per_round)
+            if result:
+                return result
+
+        # All attempts failed
+        return SelectClubsResult(
+            status=TransitionResult.SELECTION_FAILED,
+            error="Could not find clubs with common players. Need more diverse club submissions.",
+        )
+
+    def _try_select_clubs(
+        self,
+        pool: list[ClubSubmission],
+        target_count: int,
+        data_service: Any,
+        room: Room,
+        original_request: int,
+    ) -> SelectClubsResult | None:
+        """Try to select clubs from pool with common players. Returns None if failed."""
+        pool_clubs = [s.club_name for s in pool]
+
+        # Build mapping of club -> player_id
+        club_to_player = {s.club_name: s.player_id for s in pool}
+
+        # Try random combinations up to MAX_SELECTION_RETRIES times
+        tried_combinations: set[tuple[str, ...]] = set()
+
+        for _ in range(MAX_SELECTION_RETRIES):
+            # Select random clubs
+            if len(pool_clubs) == target_count:
+                selected = pool_clubs[:]
+            else:
+                selected = random.sample(pool_clubs, target_count)
+
+            # Check if we've already tried this combination
+            combo_key = tuple(sorted(selected))
+            if combo_key in tried_combinations:
+                continue
+            tried_combinations.add(combo_key)
+
+            # Check for common players
+            common_players = data_service.find_common_players_multi(selected)
+
+            if common_players:
+                # Success! Transition to guessing phase
+                club_info = [
+                    data_service.get_club_info(club) or {"full_name": club} for club in selected
+                ]
+                club_submitters = {club: club_to_player[club] for club in selected}
+
+                room.game_state.phase = GamePhase.GUESSING
+                room.game_state.selected_clubs = selected
+                room.game_state.clubs = (selected[0], selected[1]) if len(selected) >= 2 else None
+                room.game_state.clubs_per_round = target_count
+                room.game_state.valid_answers = common_players
+                room.game_state.valid_answer_count = len(common_players)
+                room.game_state.deadline = time.time() + settings.default_timer_seconds
+                room.game_state.increment_version()
+
+                result = SelectClubsResult(
+                    status=TransitionResult.SUCCESS,
+                    clubs=selected,
+                    club_info=club_info,
+                    club_submitters=club_submitters,
+                    deadline=room.game_state.deadline,
+                    valid_count=len(common_players),
+                )
+
+                # Indicate if we fell back to fewer clubs
+                if target_count < original_request:
+                    result.fallback_club_count = target_count
+
+                return result
+
+        return None
+
     def start_guessing_phase(self, room: Room) -> dict:
         """
         Validate clubs and start the guessing phase.
+        For classic mode: uses player submissions.
+        For multiplayer: should use start_round() instead.
         Returns info about the round or error if no common players.
         """
+        if room.mode == GameMode.MULTIPLAYER:
+            # Multiplayer should use start_round() which selects from pool
+            return {"success": False, "error": "Use start_round for multiplayer mode"}
         result = self._start_guessing_atomic(room)
         return result.to_dict()
 
     def _start_guessing_atomic(self, room: Room) -> StartGuessingResult:
-        """Atomically transition to guessing phase if ready."""
+        """Atomically transition to guessing phase if ready (classic mode)."""
         # Validate phase
         if room.game_state.phase != GamePhase.WAITING_FOR_CLUBS:
             return StartGuessingResult(
@@ -241,6 +511,7 @@ class GameManager:
         # Atomic transition to guessing phase
         room.game_state.phase = GamePhase.GUESSING
         room.game_state.clubs = (club1, club2)
+        room.game_state.selected_clubs = [club1, club2]
         room.game_state.valid_answers = common_players
         room.game_state.valid_answer_count = len(common_players)
         room.game_state.deadline = time.time() + settings.default_timer_seconds
@@ -338,13 +609,31 @@ class GameManager:
             "valid_answers": room.game_state.valid_answers,
         }
 
-    def start_new_round(self, room: Room) -> dict:
-        """Start a new round (play again)."""
+    def start_new_round(self, room: Room, player_id: str | None = None) -> dict:
+        """Start a new round (play again).
+
+        For classic mode: resets to WAITING_FOR_CLUBS and requires new submissions.
+        For multiplayer: keeps pool and immediately selects new clubs (instant re-pick).
+        """
         if room.game_state.phase != GamePhase.ROUND_END:
             return {"success": False, "error": "Round not ended"}
 
-        room.reset_for_round()
-        return {"success": True, "phase": room.game_state.phase}
+        if room.mode == GameMode.MULTIPLAYER:
+            # Multiplayer: keep pool, reset game state, immediately select new clubs
+            if player_id and player_id != room.host_id:
+                return {"success": False, "error": "Only host can start new round"}
+
+            # Reset game state but keep pool
+            room.reset_for_round(clear_pool=False)
+
+            # Immediately select new clubs and start guessing
+            clubs_per_round = room.game_state.clubs_per_round or 2
+            result = self._select_clubs_from_pool_atomic(room, clubs_per_round)
+            return result.to_dict()
+        else:
+            # Classic mode: reset everything
+            room.reset_for_round(clear_pool=True)
+            return {"success": True, "phase": room.game_state.phase.value}
 
     def _get_data_service(self, sport: Sport) -> SportDataService:
         """Get the appropriate data service for the sport."""

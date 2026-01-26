@@ -3,6 +3,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../models/game_state.dart';
+import '../models/player.dart';
 import '../providers/game_provider.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
@@ -21,13 +22,47 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
     ref.read(gameStateProvider.notifier).leaveRoom();
   }
 
+  void _startGame() {
+    ref.read(gameStateProvider.notifier).startGame();
+  }
+
   @override
   Widget build(BuildContext context) {
     final gameState = ref.watch(gameStateProvider);
-    final isWaiting = gameState.opponent == null;
+    final isMultiplayer = gameState.isMultiplayer;
+    final isWaiting = isMultiplayer
+        ? gameState.allPlayers.length < 2
+        : gameState.opponent == null;
 
-    // Listen for phase changes and navigate accordingly
+    // Listen for phase changes, errors, host changes, and navigate accordingly
     ref.listen<GameState>(gameStateProvider, (previous, next) {
+      // Show errors
+      if (next.errorMessage != null && next.errorMessage != previous?.errorMessage) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(next.errorMessage!),
+            backgroundColor: AppColors.error,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+        ref.read(gameStateProvider.notifier).clearError();
+      }
+
+      // Notify user if they became the new host
+      if (previous != null &&
+          next.hostId != previous.hostId &&
+          next.hostId == next.self?.id &&
+          previous.hostId != next.self?.id) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('You are now the host!'),
+            backgroundColor: AppColors.success,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+
+      // Navigate based on phase
       if (next.phase == GamePhase.clubSelection || next.phase == GamePhase.guessing) {
         context.goNamed('game');
       } else if (next.phase == GamePhase.home) {
@@ -47,8 +82,8 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // Sport badge
-                  _SportBadge(sport: gameState.sport),
+                  // Sport & mode badge
+                  _SportModeBadge(sport: gameState.sport, mode: gameState.mode),
 
                   const SizedBox(height: AppTheme.space2xl),
 
@@ -62,7 +97,13 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
                   const SizedBox(height: AppTheme.space2xl),
 
                   // Status
-                  if (isWaiting)
+                  if (isMultiplayer)
+                    _MultiplayerLobbyStatus(
+                      playerCount: gameState.allPlayers.length,
+                      maxPlayers: gameState.maxPlayers,
+                      isHost: gameState.isHost,
+                    )
+                  else if (isWaiting)
                     _WaitingStatus()
                   else
                     _OpponentJoinedStatus(
@@ -72,13 +113,33 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
                   const SizedBox(height: AppTheme.space2xl),
 
                   // Players
-                  _PlayersDisplay(
-                    selfName: gameState.self?.name ?? 'You',
-                    opponentName: gameState.opponent?.name,
-                    isWaiting: isWaiting,
-                  ),
+                  if (isMultiplayer)
+                    _MultiplayerPlayersDisplay(
+                      players: gameState.allPlayers,
+                      hostId: gameState.hostId,
+                      selfId: gameState.self?.id,
+                    )
+                  else
+                    _PlayersDisplay(
+                      selfName: gameState.self?.name ?? 'You',
+                      opponentName: gameState.opponent?.name,
+                      isWaiting: isWaiting,
+                    ),
 
                   const Spacer(),
+
+                  // Start game button (multiplayer, host only)
+                  if (isMultiplayer && gameState.isHost) ...[
+                    ElevatedButton(
+                      onPressed: gameState.canStartGame ? _startGame : null,
+                      child: Text(
+                        gameState.canStartGame
+                            ? 'START GAME'
+                            : 'Waiting for players (${gameState.allPlayers.length}/${gameState.maxPlayers})',
+                      ),
+                    ),
+                    const SizedBox(height: AppTheme.spaceMd),
+                  ],
 
                   // Leave button
                   TextButton.icon(
@@ -98,42 +159,251 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
   }
 }
 
-class _SportBadge extends StatelessWidget {
+class _SportModeBadge extends StatelessWidget {
   final SportType sport;
+  final GameMode mode;
 
-  const _SportBadge({required this.sport});
+  const _SportModeBadge({required this.sport, required this.mode});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppTheme.spaceMd,
+            vertical: AppTheme.spaceSm,
+          ),
+          decoration: BoxDecoration(
+            color: AppColors.primary.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(AppTheme.radiusFull),
+            border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                sport == SportType.nba ? Icons.sports_basketball : Icons.sports_soccer,
+                color: AppColors.primary,
+                size: 20,
+              ),
+              const SizedBox(width: AppTheme.spaceSm),
+              Text(
+                sport.displayName,
+                style: AppTheme.captionStyle.copyWith(
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: AppTheme.spaceSm),
+        Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppTheme.spaceMd,
+            vertical: AppTheme.spaceSm,
+          ),
+          decoration: BoxDecoration(
+            color: mode == GameMode.multiplayer
+                ? AppColors.success.withValues(alpha: 0.1)
+                : AppColors.gray700.withValues(alpha: 0.3),
+            borderRadius: BorderRadius.circular(AppTheme.radiusFull),
+            border: Border.all(
+              color: mode == GameMode.multiplayer
+                  ? AppColors.success.withValues(alpha: 0.3)
+                  : AppColors.gray700,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                mode == GameMode.multiplayer ? Icons.groups : Icons.people,
+                color: mode == GameMode.multiplayer ? AppColors.success : AppColors.textSecondary,
+                size: 20,
+              ),
+              const SizedBox(width: AppTheme.spaceSm),
+              Text(
+                mode.displayName,
+                style: AppTheme.captionStyle.copyWith(
+                  color: mode == GameMode.multiplayer ? AppColors.success : AppColors.textSecondary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ).animate().fadeIn();
+  }
+}
+
+class _MultiplayerLobbyStatus extends StatelessWidget {
+  final int playerCount;
+  final int maxPlayers;
+  final bool isHost;
+
+  const _MultiplayerLobbyStatus({
+    required this.playerCount,
+    required this.maxPlayers,
+    required this.isHost,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final canStart = playerCount >= 2;
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(AppTheme.spaceLg),
+          decoration: BoxDecoration(
+            color: canStart
+                ? AppColors.success.withValues(alpha: 0.1)
+                : AppColors.surface,
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: canStart ? AppColors.success : AppColors.gray700,
+            ),
+          ),
+          child: Icon(
+            Icons.groups,
+            size: 48,
+            color: canStart ? AppColors.success : AppColors.textSecondary,
+          ),
+        ),
+        const SizedBox(height: AppTheme.spaceMd),
+        Text(
+          '$playerCount / $maxPlayers players',
+          style: AppTheme.h3Style.copyWith(
+            color: canStart ? AppColors.success : AppColors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: AppTheme.spaceSm),
+        Text(
+          isHost
+              ? (canStart ? 'Ready to start!' : 'Waiting for more players...')
+              : (canStart ? 'Waiting for host to start' : 'Waiting for more players...'),
+          style: AppTheme.captionStyle,
+        ),
+      ],
+    ).animate().fadeIn(delay: const Duration(milliseconds: 300));
+  }
+}
+
+class _MultiplayerPlayersDisplay extends StatelessWidget {
+  final List<Player> players;
+  final String? hostId;
+  final String? selfId;
+
+  const _MultiplayerPlayersDisplay({
+    required this.players,
+    this.hostId,
+    this.selfId,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppTheme.spaceMd,
-        vertical: AppTheme.spaceSm,
-      ),
+      padding: const EdgeInsets.all(AppTheme.spaceMd),
       decoration: BoxDecoration(
-        color: AppColors.primary.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(AppTheme.radiusFull),
-        border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+        border: Border.all(color: AppColors.gray700),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            sport == SportType.nba ? Icons.sports_basketball : Icons.sports_soccer,
-            color: AppColors.primary,
-            size: 20,
-          ),
-          const SizedBox(width: AppTheme.spaceSm),
           Text(
-            sport.displayName,
+            'PLAYERS',
             style: AppTheme.captionStyle.copyWith(
-              color: AppColors.primary,
-              fontWeight: FontWeight.w600,
+              letterSpacing: 1,
+              fontSize: 10,
             ),
           ),
+          const SizedBox(height: AppTheme.spaceSm),
+          ...players.map((player) {
+            final isHost = player.id == hostId;
+            final isMe = player.id == selfId;
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: AppTheme.spaceXs),
+              child: Row(
+                children: [
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: isMe
+                          ? AppColors.primary.withValues(alpha: 0.1)
+                          : AppColors.gray700.withValues(alpha: 0.3),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: isMe ? AppColors.primary : AppColors.gray700,
+                      ),
+                    ),
+                    child: Icon(
+                      Icons.person,
+                      size: 16,
+                      color: isMe ? AppColors.primary : AppColors.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(width: AppTheme.spaceSm),
+                  Expanded(
+                    child: Text(
+                      player.name,
+                      style: AppTheme.bodyStyle.copyWith(
+                        fontWeight: isMe ? FontWeight.w600 : FontWeight.normal,
+                      ),
+                    ),
+                  ),
+                  if (isMe)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppTheme.spaceSm,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(AppTheme.radiusFull),
+                      ),
+                      child: Text(
+                        'YOU',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  if (isHost) ...[
+                    const SizedBox(width: AppTheme.spaceXs),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppTheme.spaceSm,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.success.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(AppTheme.radiusFull),
+                      ),
+                      child: Text(
+                        'HOST',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: AppColors.success,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            );
+          }),
         ],
       ),
-    ).animate().fadeIn();
+    ).animate().fadeIn(delay: const Duration(milliseconds: 500));
   }
 }
 

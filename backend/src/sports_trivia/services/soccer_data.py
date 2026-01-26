@@ -197,6 +197,60 @@ class SoccerDataService:
 
         return []
 
+    def find_common_players_multi(self, clubs: list[str]) -> list[str]:
+        """Find players who played for ALL specified clubs.
+
+        Args:
+            clubs: List of 2-4 club names.
+
+        Returns:
+            Sorted list of player names who played for all clubs.
+        """
+        if len(clubs) < 2:
+            return []
+
+        # For 2 clubs, use optimized method
+        if len(clubs) == 2:
+            return self.find_common_players(clubs[0], clubs[1])
+
+        # For 3+ clubs, intersect all player sets
+        data = _load_soccer_data()
+        if data:
+            player_sets: list[set[str]] = []
+            for club in clubs:
+                club_key = _get_club_key(club)
+                if not club_key or club_key not in data["clubs"]:
+                    logger.warning(f"Club not found in data: {club}")
+                    return []
+
+                raw_players = data["clubs"][club_key].get("players", [])
+                if raw_players and isinstance(raw_players[0], dict):
+                    player_sets.append({p["name"] for p in raw_players})
+                else:
+                    player_sets.append(set(raw_players))
+
+            # Intersect all sets
+            common = player_sets[0]
+            for ps in player_sets[1:]:
+                common = common & ps
+
+            logger.info(f"Found {len(common)} common players for {len(clubs)} clubs")
+            return sorted(common)
+
+        # Fall back to mock data
+        player_sets_mock: list[set[str]] = []
+        for club in clubs:
+            normalized = self._normalize_club_name_mock(club)
+            if normalized not in self.MOCK_CLUBS:
+                return []
+            player_sets_mock.append(set(self.MOCK_CLUBS[normalized]))
+
+        common = player_sets_mock[0]
+        for ps in player_sets_mock[1:]:
+            common = common & ps
+
+        return sorted(common)
+
     def get_club_players(self, club_name: str) -> list[str]:
         """Get all players who have played for a club."""
         # Try JSON data first

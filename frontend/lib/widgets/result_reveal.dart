@@ -59,26 +59,6 @@ class _ResultRevealState extends State<ResultReveal> {
 
   @override
   Widget build(BuildContext context) {
-    // DEBUG: Log the data being received - check Chrome DevTools console (F12)
-    debugPrint('');
-    debugPrint('╔════════════════════════════════════════════════╗');
-    debugPrint('║          RESULT REVEAL DEBUG                   ║');
-    debugPrint('╠════════════════════════════════════════════════╣');
-    debugPrint('║ correctAnswer: ${widget.result.correctAnswer}');
-    debugPrint('║ correctAnswerImageUrl: ${widget.result.correctAnswerImageUrl ?? "NULL"}');
-    debugPrint('║ validAnswers count: ${widget.result.validAnswers.length}');
-    debugPrint('║ validAnswerDetails count: ${widget.result.validAnswerDetails.length}');
-    if (widget.result.validAnswerDetails.isEmpty) {
-      debugPrint('║ ⚠️  WARNING: validAnswerDetails is EMPTY!');
-    } else {
-      debugPrint('║ First 3 player details:');
-      for (final detail in widget.result.validAnswerDetails.take(3)) {
-        debugPrint('║   - ${detail.name}: ${detail.imageUrl ?? "NO IMAGE"}');
-      }
-    }
-    debugPrint('╚════════════════════════════════════════════════╝');
-    debugPrint('');
-
     return Stack(
       alignment: Alignment.topCenter,
       children: [

@@ -158,3 +158,59 @@ Tests in `backend/tests/` cover:
 - `test_concurrency.py` - Race conditions, per-room locking
 - `test_state_sync.py` - Reconnection scenarios
 - `test_websocket.py` - Full game flow integration
+- `test_multiplayer.py` - Multiplayer mode (2-10 players)
+
+## Fullstack Development Checklist
+
+When making changes that span backend and frontend, ensure consistency across these paired files:
+
+### 1. WebSocket Events (Protocol Layer)
+
+| Backend | Frontend |
+|---------|----------|
+| `websocket/events.py` - `ClientEvent`, `ServerEvent` enums | `services/websocket_service.dart` - `WsEventType`, `WsActionType` enums |
+
+- Add new events to both files
+- Field names: `snake_case` (Python) ↔ `camelCase` (Dart)
+- Create corresponding event classes in Dart (e.g., `PoolUpdatedEvent`)
+
+### 2. Data Models (State Layer)
+
+| Backend | Frontend |
+|---------|----------|
+| `models/game.py` - `GamePhase`, `GameMode`, `GameState` | `models/game_state.dart` - `GamePhase`, `GameMode`, `GameState` |
+| `models/room.py` - `Room`, `Player` | `models/player.dart` - `Player` |
+
+- Keep enums in sync (same values)
+- Match field names and types
+- Update `copyWith()` in Dart when adding fields
+
+### 3. State Transitions (Logic Layer)
+
+| Backend | Frontend |
+|---------|----------|
+| `services/game_manager.py` - phase transitions | `providers/game_orchestrator.dart` - pure state functions |
+| `websocket/handlers.py` - event handlers | `providers/game_provider.dart` - event subscriptions |
+
+### 4. Verification Commands
+
+```bash
+# Backend: run all tests
+cd backend && PYTHONPATH=src uv run pytest tests/ -v
+
+# Frontend: static analysis + build
+cd frontend && flutter analyze && flutter build web
+
+# Integration: manual test in browser
+# 1. Start backend: cd backend && uv run uvicorn sports_trivia.main:app --reload
+# 2. Start frontend: cd frontend && flutter run -d chrome
+# 3. Open browser dev tools → Network → WS to inspect WebSocket messages
+# 4. Test full game flow with multiple browser tabs
+```
+
+### 5. Common Pitfalls
+
+- **Missing event handler**: Added event to backend but forgot to subscribe in `game_provider.dart`
+- **Field mismatch**: Backend sends `host_id` but frontend expects `hostId` (use proper JSON key mapping)
+- **Phase desync**: Backend transitions to new phase but frontend doesn't handle it in `ref.listen`
+- **Missing import**: Added new model but forgot to import in screen file
