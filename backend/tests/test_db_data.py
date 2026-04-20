@@ -1,6 +1,5 @@
 """Tests for database-backed data services."""
 
-
 import pytest
 
 from sports_trivia.db import DATABASE_PATH
