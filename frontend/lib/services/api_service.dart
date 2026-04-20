@@ -16,6 +16,25 @@ class ApiService {
     return _instance!;
   }
 
+  /// Get all players for a sport (NBA-only for now — for grid autocomplete).
+  Future<List<PlayerInfo>> getPlayers(String sport) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/api/players/$sport'),
+      );
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final players = data['players'] as List<dynamic>? ?? [];
+        return players
+            .map((p) => PlayerInfo.fromJson(p as Map<String, dynamic>))
+            .toList();
+      }
+    } catch (_) {
+      // Silently fail — typing still works, autocomplete just empty.
+    }
+    return [];
+  }
+
   /// Get all clubs for a sport
   Future<List<ClubInfo>> getClubs(String sport) async {
     try {
@@ -56,6 +75,24 @@ class ApiService {
 
     return ClubValidationResult(valid: false, error: 'Validation failed');
   }
+}
+
+/// Lightweight NBA player entry for grid-mode autocomplete.
+class PlayerInfo {
+  final String name;
+  final String? externalId;
+
+  PlayerInfo({required this.name, this.externalId});
+
+  factory PlayerInfo.fromJson(Map<String, dynamic> json) => PlayerInfo(
+        name: json['name'] as String,
+        externalId: json['external_id'] as String?,
+      );
+
+  /// NBA.com headshot URL (null when no external_id).
+  String? get headshotUrl => externalId == null
+      ? null
+      : 'https://cdn.nba.com/headshots/nba/latest/1040x760/$externalId.png';
 }
 
 /// Club information from API

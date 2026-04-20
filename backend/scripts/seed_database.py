@@ -37,7 +37,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from sports_trivia.db import DATABASE_PATH, Base, get_engine
-from sports_trivia.db.seeders import NBASeeder, SoccerSeeder
+from sports_trivia.db.seeders import NBAMetadataSeeder, NBASeeder, SoccerSeeder
 
 # Configure logging
 logging.basicConfig(
@@ -103,6 +103,10 @@ def main():
     if seed_nba:
         logger.info("Seeding NBA data...")
         NBASeeder(engine).seed()
+        # Award/draft/career/coach metadata for NBA Grid mode (optional — skipped
+        # silently if nba_player_metadata.json isn't present yet).
+        logger.info("Seeding NBA metadata (awards/draft/career/coaches)...")
+        NBAMetadataSeeder(engine).seed()
 
     if seed_soccer:
         logger.info("Seeding soccer data...")
@@ -116,6 +120,19 @@ def main():
         clubs = conn.execute(text("SELECT COUNT(*) FROM clubs")).scalar()
         players = conn.execute(text("SELECT COUNT(*) FROM players")).scalar()
         aliases = conn.execute(text("SELECT COUNT(*) FROM club_aliases")).scalar()
+        awards = conn.execute(text("SELECT COUNT(*) FROM player_awards")).scalar()
+        drafts = conn.execute(text("SELECT COUNT(*) FROM player_draft")).scalar()
+        careers = conn.execute(text("SELECT COUNT(*) FROM player_career")).scalar()
+        seasons = conn.execute(text("SELECT COUNT(*) FROM player_season")).scalar()
+        europeans = conn.execute(
+            text("SELECT COUNT(*) FROM players WHERE is_european = 1")
+        ).scalar()
+        non_usa = conn.execute(
+            text(
+                "SELECT COUNT(*) FROM players WHERE birth_country IS NOT NULL AND birth_country != 'USA'"
+            )
+        ).scalar()
+        coaches = conn.execute(text("SELECT COUNT(*) FROM coaches")).scalar()
 
     logger.info("=" * 50)
     logger.info("Seeding complete!")
@@ -123,6 +140,13 @@ def main():
     logger.info(f"  Clubs: {clubs}")
     logger.info(f"  Players: {players}")
     logger.info(f"  Aliases: {aliases}")
+    logger.info(f"  Awards: {awards}")
+    logger.info(f"  Drafts: {drafts}")
+    logger.info(f"  Careers: {careers}")
+    logger.info(f"  Seasons: {seasons}")
+    logger.info(f"  Europeans: {europeans}")
+    logger.info(f"  Non-USA: {non_usa}")
+    logger.info(f"  Coaches: {coaches}")
     logger.info("=" * 50)
 
 

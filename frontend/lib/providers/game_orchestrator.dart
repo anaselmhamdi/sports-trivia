@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import '../models/game_state.dart';
+import '../models/grid.dart';
 import '../models/player.dart';
+import '../services/websocket_service.dart';
 
 /// Orchestrates all game state transitions with clear, named methods.
 /// This class is pure - it only computes new states, no side effects.
@@ -533,6 +535,86 @@ class GameOrchestrator {
       validAnswerCount: validAnswerCount,
       isCreator: current.isCreator,  // Preserve creator status
       isReconnecting: false,
+    );
+  }
+
+  // ============================================================================
+  // NBA GRID
+  // ============================================================================
+
+  GameState onGridGameStarted(GameState current, GridGameStartedEvent e) {
+    _log('Grid game started, first turn: ${e.currentTurnPlayerId}');
+    return current.copyWith(
+      phase: GamePhase.guessing,
+      grid: e.grid,
+      rowCategories: e.rowCategories,
+      colCategories: e.colCategories,
+      playerSymbols: e.playerSymbols,
+      turnDeadline: e.turnDeadline,
+      currentTurnPlayerId: e.currentTurnPlayerId,
+      clearDrawProposal: true,
+      clearGridEndReason: true,
+      clearRoundResult: true,
+    );
+  }
+
+  GameState onGridCellMarked(GameState current, GridCellMarkedEvent e) {
+    _log('Cell (${e.row},${e.col}) marked ${e.symbol} by ${e.playerId}');
+    final grid = current.grid;
+    if (grid == null) return current;
+    final updated = [
+      for (var r = 0; r < 3; r++)
+        [
+          for (var c = 0; c < 3; c++)
+            if (r == e.row && c == e.col)
+              GridCell(
+                markedBy: e.playerId,
+                symbol: e.symbol,
+                playerName: e.playerName,
+                playerImageUrl: e.playerImageUrl,
+              )
+            else
+              grid[r][c],
+        ]
+    ];
+    return current.copyWith(
+      grid: updated,
+      turnDeadline: e.turnDeadline ?? current.turnDeadline,
+      currentTurnPlayerId: e.nextTurnPlayerId ?? current.currentTurnPlayerId,
+    );
+  }
+
+  GameState onGridTurnPassed(GameState current, GridTurnPassedEvent e) {
+    _log('Turn passed (${e.reason}) -> ${e.nextTurnPlayerId}');
+    return current.copyWith(
+      turnDeadline: e.turnDeadline,
+      currentTurnPlayerId: e.nextTurnPlayerId,
+    );
+  }
+
+  GameState onGridDrawProposed(GameState current, GridDrawProposedEvent e) {
+    _log('Draw proposed by ${e.proposerId}');
+    return current.copyWith(
+      drawProposal: DrawProposal(
+        proposerId: e.proposerId,
+        proposedAt: DateTime.now().millisecondsSinceEpoch / 1000.0,
+      ),
+    );
+  }
+
+  GameState onGridDrawResolved(GameState current, GridDrawResolvedEvent e) {
+    _log('Draw resolved (accepted=${e.accepted}, ended=${e.ended})');
+    // If ended, `onGridGameEnded` handles the phase transition.
+    return current.copyWith(clearDrawProposal: true);
+  }
+
+  GameState onGridGameEnded(GameState current, GridGameEndedEvent e) {
+    _log('Grid game ended: ${e.endReason} winner=${e.winnerId}');
+    return current.copyWith(
+      phase: GamePhase.results,
+      gridEndReason: e.endReason,
+      gridWinnerId: e.winnerId,
+      clearDrawProposal: true,
     );
   }
 

@@ -26,6 +26,10 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
     ref.read(gameStateProvider.notifier).startGame();
   }
 
+  void _startGridGame() {
+    ref.read(gameStateProvider.notifier).startGridGame();
+  }
+
   @override
   Widget build(BuildContext context) {
     final gameState = ref.watch(gameStateProvider);
@@ -136,6 +140,20 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
                         gameState.canStartGame
                             ? 'START GAME'
                             : 'Waiting for players (${gameState.allPlayers.length}/${gameState.maxPlayers})',
+                      ),
+                    ),
+                    const SizedBox(height: AppTheme.spaceMd),
+                  ],
+
+                  // Start grid game button (NBA Grid, host only, 2 players joined)
+                  if (gameState.isNbaGrid && gameState.isHost) ...[
+                    ElevatedButton.icon(
+                      onPressed: gameState.opponent != null ? _startGridGame : null,
+                      icon: const Icon(Icons.grid_3x3),
+                      label: Text(
+                        gameState.opponent != null
+                            ? 'START TIC TAC TOE'
+                            : 'Waiting for opponent',
                       ),
                     ),
                     const SizedBox(height: AppTheme.spaceMd),

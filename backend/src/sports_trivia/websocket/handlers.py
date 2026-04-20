@@ -137,6 +137,12 @@ class WebSocketHandler:
             # Multiplayer events
             ClientEvent.START_GAME.value: self._handle_start_game,
             ClientEvent.START_ROUND.value: self._handle_start_round,
+            # NBA Grid events
+            ClientEvent.START_GRID_GAME.value: self._handle_start_grid_game,
+            ClientEvent.SUBMIT_GRID_GUESS.value: self._handle_submit_grid_guess,
+            ClientEvent.SKIP_GRID_TURN.value: self._handle_skip_grid_turn,
+            ClientEvent.PROPOSE_GRID_DRAW.value: self._handle_propose_grid_draw,
+            ClientEvent.RESPOND_GRID_DRAW.value: self._handle_respond_grid_draw,
         }
 
         handler = handlers.get(event)
@@ -411,7 +417,23 @@ class WebSocketHandler:
                 await self._send_error(player_id, result.get("error", "Failed to start new round"))
                 return
 
-            if room.mode == GameMode.MULTIPLAYER:
+            if room.mode == GameMode.NBA_GRID:
+                # Grid: regenerated grid + fresh timer; broadcast GRID_GAME_STARTED
+                # using the same payload as the initial start.
+                await self._connections.broadcast_to_room(
+                    room_code,
+                    create_message(
+                        ServerEvent.GRID_GAME_STARTED,
+                        grid=result["grid"],
+                        row_categories=result["row_categories"],
+                        col_categories=result["col_categories"],
+                        player_symbols=result["player_symbols"],
+                        current_turn_player_id=result["current_turn_player_id"],
+                        turn_deadline=result["turn_deadline"],
+                    ),
+                )
+                self._start_grid_clock_task(room_code)
+            elif room.mode == GameMode.MULTIPLAYER:
                 # Multiplayer: instant re-pick from pool, guessing starts immediately
                 if result.get("clubs"):
                     await self._connections.broadcast_to_room(
@@ -498,6 +520,34 @@ class WebSocketHandler:
             sync_data["pool_size"] = len(room.game_state.club_pool)
             sync_data["selected_clubs"] = room.game_state.selected_clubs
             sync_data["clubs_per_round"] = room.game_state.clubs_per_round
+        elif room.mode == GameMode.NBA_GRID:
+            # Grid-mode snapshot — frontend re-hydrates from this on reconnect.
+            from sports_trivia.services.game_manager import (
+                _category_to_dict,
+                _grid_to_dict,
+            )
+
+            gs = room.game_state
+            sync_data["grid"] = _grid_to_dict(gs.grid) if gs.grid else None
+            sync_data["row_categories"] = (
+                [_category_to_dict(c) for c in gs.row_categories] if gs.row_categories else None
+            )
+            sync_data["col_categories"] = (
+                [_category_to_dict(c) for c in gs.col_categories] if gs.col_categories else None
+            )
+            sync_data["current_turn_player_id"] = gs.current_turn_player_id
+            sync_data["player_symbols"] = gs.player_symbols
+            sync_data["turn_deadline"] = gs.turn_deadline
+            sync_data["draw_proposal"] = (
+                {
+                    "proposer_id": gs.draw_proposal.proposer_id,
+                    "proposed_at": gs.draw_proposal.proposed_at,
+                }
+                if gs.draw_proposal
+                else None
+            )
+            sync_data["end_reason"] = gs.end_reason
+            sync_data["winner_id"] = gs.winner_id
         else:
             # Classic mode state
             sync_data["my_club"] = my_club
@@ -609,6 +659,267 @@ class WebSocketHandler:
             )
             # Start timeout task
             self._start_timeout_task(room_code, result["deadline"])
+
+    # ------------------------------------------------------------------
+    # NBA Grid handlers
+    # ------------------------------------------------------------------
+
+    async def _handle_start_grid_game(self, player_id: str, _data: dict[str, Any]) -> None:
+        """Host starts the grid: server generates grid, assigns symbols, kicks off clock."""
+        result = await self._get_player_room(player_id)
+        if not result:
+            return
+        room_code, room = result
+        self._room_manager.touch_room(room_code)
+
+        async with room.get_lock():
+            res = self._game_manager.start_grid_game(room, player_id)
+            if not res["success"]:
+                await self._send_error(player_id, res["error"])
+                return
+
+            await self._connections.broadcast_to_room(
+                room_code,
+                create_message(
+                    ServerEvent.GRID_GAME_STARTED,
+                    grid=res["grid"],
+                    row_categories=res["row_categories"],
+                    col_categories=res["col_categories"],
+                    player_symbols=res["player_symbols"],
+                    current_turn_player_id=res["current_turn_player_id"],
+                    turn_deadline=res["turn_deadline"],
+                ),
+            )
+            self._start_grid_clock_task(room_code)
+
+    async def _handle_submit_grid_guess(self, player_id: str, data: dict[str, Any]) -> None:
+        """Player submits a guess for a specific cell."""
+        result = await self._get_player_room(player_id)
+        if not result:
+            return
+        room_code, room = result
+        self._room_manager.touch_room(room_code)
+
+        try:
+            row = int(data.get("row", -1))
+            col = int(data.get("col", -1))
+        except (TypeError, ValueError):
+            await self._send_error(player_id, "Invalid cell coordinates")
+            return
+
+        guess = str(data.get("player_name", "")).strip()[:MAX_GUESS_LENGTH]
+        if not guess:
+            await self._send_error(player_id, "Invalid guess")
+            return
+
+        async with room.get_lock():
+            res = self._game_manager.submit_grid_guess(room, player_id, row, col, guess)
+            if not res["success"]:
+                await self._send_error(player_id, res["error"])
+                return
+
+            if res.get("game_ended"):
+                self._cancel_grid_clock_task(room_code)
+                await self._connections.broadcast_to_room(
+                    room_code,
+                    create_message(
+                        ServerEvent.GRID_CELL_MARKED,
+                        row=res["row"],
+                        col=res["col"],
+                        player_id=res["player_id"],
+                        symbol=res["symbol"],
+                        player_name=res["player_name"],
+                        player_image_url=res.get("player_image_url"),
+                        turn_deadline=res.get("turn_deadline"),
+                    ),
+                )
+                await self._connections.broadcast_to_room(
+                    room_code,
+                    create_message(
+                        ServerEvent.GRID_GAME_ENDED,
+                        end_reason=res["end_reason"],
+                        winner_id=res.get("winner_id"),
+                        scores={p.id: p.score for p in room.players},
+                    ),
+                )
+                return
+
+            if res["correct"]:
+                await self._connections.broadcast_to_room(
+                    room_code,
+                    create_message(
+                        ServerEvent.GRID_CELL_MARKED,
+                        row=res["row"],
+                        col=res["col"],
+                        player_id=res["player_id"],
+                        symbol=res["symbol"],
+                        player_name=res["player_name"],
+                        player_image_url=res.get("player_image_url"),
+                        turn_deadline=res["turn_deadline"],
+                        next_turn_player_id=res["next_turn"],
+                    ),
+                )
+            else:
+                await self._connections.broadcast_to_room(
+                    room_code,
+                    create_message(
+                        ServerEvent.GRID_TURN_PASSED,
+                        reason="wrong",
+                        player_id=player_id,
+                        row=res["row"],
+                        col=res["col"],
+                        guess=res["guess"],
+                        turn_deadline=res["turn_deadline"],
+                        next_turn_player_id=res["next_turn"],
+                    ),
+                )
+
+            # Fresh 60s on new turn — restart the watcher.
+            self._start_grid_clock_task(room_code)
+
+    async def _handle_skip_grid_turn(self, player_id: str, _data: dict[str, Any]) -> None:
+        """Player skips their turn."""
+        result = await self._get_player_room(player_id)
+        if not result:
+            return
+        room_code, room = result
+        self._room_manager.touch_room(room_code)
+
+        async with room.get_lock():
+            res = self._game_manager.skip_grid_turn(room, player_id)
+            if not res["success"]:
+                await self._send_error(player_id, res["error"])
+                return
+
+            await self._connections.broadcast_to_room(
+                room_code,
+                create_message(
+                    ServerEvent.GRID_TURN_PASSED,
+                    reason="skip",
+                    player_id=player_id,
+                    turn_deadline=res["turn_deadline"],
+                    next_turn_player_id=res["next_turn"],
+                ),
+            )
+            self._start_grid_clock_task(room_code)
+
+    async def _handle_propose_grid_draw(self, player_id: str, _data: dict[str, Any]) -> None:
+        """Player proposes a draw — opponent must accept/decline."""
+        result = await self._get_player_room(player_id)
+        if not result:
+            return
+        room_code, room = result
+        self._room_manager.touch_room(room_code)
+
+        async with room.get_lock():
+            res = self._game_manager.propose_grid_draw(room, player_id)
+            if not res["success"]:
+                await self._send_error(player_id, res["error"])
+                return
+
+            await self._connections.broadcast_to_room(
+                room_code,
+                create_message(
+                    ServerEvent.GRID_DRAW_PROPOSED,
+                    proposer_id=res["proposer_id"],
+                ),
+            )
+
+    async def _handle_respond_grid_draw(self, player_id: str, data: dict[str, Any]) -> None:
+        """Opponent accepts or declines a draw proposal."""
+        result = await self._get_player_room(player_id)
+        if not result:
+            return
+        room_code, room = result
+        self._room_manager.touch_room(room_code)
+
+        accept = bool(data.get("accept", False))
+
+        async with room.get_lock():
+            res = self._game_manager.respond_grid_draw(room, player_id, accept)
+            if not res["success"]:
+                await self._send_error(player_id, res["error"])
+                return
+
+            await self._connections.broadcast_to_room(
+                room_code,
+                create_message(
+                    ServerEvent.GRID_DRAW_RESOLVED,
+                    accepted=res["accepted"],
+                    ended=res["ended"],
+                ),
+            )
+
+            if res["ended"]:
+                self._cancel_grid_clock_task(room_code)
+                await self._connections.broadcast_to_room(
+                    room_code,
+                    create_message(
+                        ServerEvent.GRID_GAME_ENDED,
+                        end_reason=res["end_reason"],
+                        winner_id=res.get("winner_id"),
+                        scores={p.id: p.score for p in room.players},
+                    ),
+                )
+
+    def _start_grid_clock_task(self, room_code: str) -> None:
+        """Start a background task that auto-skips when the per-turn 60s elapses.
+
+        Timer expiry just passes the turn (with reason='timeout') and grants the
+        opponent a fresh 60s — it does NOT end the game. The task reschedules
+        itself for the next turn.
+        """
+        self._cancel_grid_clock_task(room_code)
+
+        room = self._room_manager.get_room(room_code)
+        if room is None:
+            return
+        gs = room.game_state
+        if gs.turn_deadline is None or gs.current_turn_player_id is None:
+            return
+        expiring_player = gs.current_turn_player_id
+        remaining = max(0.0, gs.turn_deadline - time.time())
+
+        async def watch():
+            try:
+                await asyncio.sleep(remaining)
+                room = self._room_manager.get_room(room_code)
+                if not room:
+                    return
+                async with room.get_lock():
+                    if room.game_state.phase != GamePhase.GUESSING:
+                        return
+                    if room.mode != GameMode.NBA_GRID:
+                        return
+                    res = self._game_manager.grid_timer_expired(room, expiring_player)
+                    if not res.get("success"):
+                        return
+                    await self._connections.broadcast_to_room(
+                        room_code,
+                        create_message(
+                            ServerEvent.GRID_TURN_PASSED,
+                            reason="timeout",
+                            player_id=res["player_id"],
+                            turn_deadline=res["turn_deadline"],
+                            next_turn_player_id=res["next_turn"],
+                        ),
+                    )
+            finally:
+                self._timeout_tasks.pop(room_code, None)
+                # Reschedule for the new turn — the game continues.
+                r2 = self._room_manager.get_room(room_code)
+                if (
+                    r2 is not None
+                    and r2.mode == GameMode.NBA_GRID
+                    and r2.game_state.phase == GamePhase.GUESSING
+                ):
+                    self._start_grid_clock_task(room_code)
+
+        self._timeout_tasks[room_code] = asyncio.create_task(watch())
+
+    def _cancel_grid_clock_task(self, room_code: str) -> None:
+        """Alias for symmetry with _start_grid_clock_task."""
+        self._cancel_timeout_task(room_code)
 
     async def _handle_disconnect(self, player_id: str) -> None:
         """Handle player disconnect."""

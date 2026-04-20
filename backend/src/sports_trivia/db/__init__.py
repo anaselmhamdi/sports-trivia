@@ -47,7 +47,20 @@ def get_session() -> Session:
 
 
 # Re-export models and base for convenience
-from sports_trivia.db.models import Base, Club, ClubAlias, ClubPlayer, League, Player  # noqa: E402
+from sports_trivia.db.models import (  # noqa: E402
+    Base,
+    Club,
+    ClubAlias,
+    ClubPlayer,
+    Coach,
+    CoachPlayer,
+    League,
+    Player,
+    PlayerAward,
+    PlayerCareer,
+    PlayerDraft,
+    PlayerSeason,
+)
 
 __all__ = [
     "DATABASE_PATH",
@@ -60,4 +73,10 @@ __all__ = [
     "Player",
     "ClubPlayer",
     "ClubAlias",
+    "PlayerAward",
+    "PlayerDraft",
+    "PlayerCareer",
+    "PlayerSeason",
+    "Coach",
+    "CoachPlayer",
 ]

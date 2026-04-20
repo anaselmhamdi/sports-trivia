@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import '../models/game_state.dart';
+import '../models/grid.dart';
 import '../models/player.dart';
 
 /// WebSocket event types from server
@@ -24,6 +25,13 @@ class WsEventType {
   static const String gameStarted = 'game_started';
   static const String poolUpdated = 'pool_updated';
   static const String selectionFailed = 'selection_failed';
+  // NBA Grid events
+  static const String gridGameStarted = 'grid_game_started';
+  static const String gridCellMarked = 'grid_cell_marked';
+  static const String gridTurnPassed = 'grid_turn_passed';
+  static const String gridDrawProposed = 'grid_draw_proposed';
+  static const String gridDrawResolved = 'grid_draw_resolved';
+  static const String gridGameEnded = 'grid_game_ended';
 }
 
 /// WebSocket action types to server
@@ -39,6 +47,12 @@ class WsActionType {
   // Multiplayer actions
   static const String startGame = 'start_game';
   static const String startRound = 'start_round';
+  // NBA Grid actions
+  static const String startGridGame = 'start_grid_game';
+  static const String submitGridGuess = 'submit_grid_guess';
+  static const String skipGridTurn = 'skip_grid_turn';
+  static const String proposeGridDraw = 'propose_grid_draw';
+  static const String respondGridDraw = 'respond_grid_draw';
 }
 
 /// Event data classes
@@ -559,6 +573,150 @@ class StateSyncEvent {
   }
 }
 
+// ---------- NBA Grid event payloads ----------
+
+/// Sent when the host presses "Start Grid Game" and the server has
+/// generated a balanced grid.
+class GridGameStartedEvent {
+  final List<List<GridCell>> grid;
+  final List<GridCategory> rowCategories;
+  final List<GridCategory> colCategories;
+  final Map<String, String> playerSymbols;
+  final String currentTurnPlayerId;
+  final double turnDeadline;
+
+  GridGameStartedEvent({
+    required this.grid,
+    required this.rowCategories,
+    required this.colCategories,
+    required this.playerSymbols,
+    required this.currentTurnPlayerId,
+    required this.turnDeadline,
+  });
+
+  factory GridGameStartedEvent.fromJson(Map<String, dynamic> json) {
+    final rawGrid = json['grid'] as List<dynamic>;
+    final grid = rawGrid
+        .map((row) => (row as List<dynamic>)
+            .map((cell) => GridCell.fromJson(cell as Map<String, dynamic>))
+            .toList())
+        .toList();
+    final rowCats = (json['row_categories'] as List<dynamic>)
+        .map((c) => GridCategory.fromJson(c as Map<String, dynamic>))
+        .toList();
+    final colCats = (json['col_categories'] as List<dynamic>)
+        .map((c) => GridCategory.fromJson(c as Map<String, dynamic>))
+        .toList();
+    return GridGameStartedEvent(
+      grid: grid,
+      rowCategories: rowCats,
+      colCategories: colCats,
+      playerSymbols: Map<String, String>.from(
+        json['player_symbols'] as Map<String, dynamic>,
+      ),
+      currentTurnPlayerId: json['current_turn_player_id'] as String,
+      turnDeadline: (json['turn_deadline'] as num).toDouble(),
+    );
+  }
+}
+
+class GridCellMarkedEvent {
+  final int row;
+  final int col;
+  final String playerId;
+  final String symbol;
+  final String playerName;
+  final String? playerImageUrl;
+  final double? turnDeadline;
+  final String? nextTurnPlayerId; // null when the mark ended the game
+
+  GridCellMarkedEvent({
+    required this.row,
+    required this.col,
+    required this.playerId,
+    required this.symbol,
+    required this.playerName,
+    this.playerImageUrl,
+    this.turnDeadline,
+    this.nextTurnPlayerId,
+  });
+
+  factory GridCellMarkedEvent.fromJson(Map<String, dynamic> json) =>
+      GridCellMarkedEvent(
+        row: json['row'] as int,
+        col: json['col'] as int,
+        playerId: json['player_id'] as String,
+        symbol: json['symbol'] as String,
+        playerName: json['player_name'] as String,
+        playerImageUrl: json['player_image_url'] as String?,
+        turnDeadline: (json['turn_deadline'] as num?)?.toDouble(),
+        nextTurnPlayerId: json['next_turn_player_id'] as String?,
+      );
+}
+
+class GridTurnPassedEvent {
+  final String reason; // "wrong" | "skip" | "timeout"
+  final String playerId;
+  final double turnDeadline;
+  final String nextTurnPlayerId;
+
+  GridTurnPassedEvent({
+    required this.reason,
+    required this.playerId,
+    required this.turnDeadline,
+    required this.nextTurnPlayerId,
+  });
+
+  factory GridTurnPassedEvent.fromJson(Map<String, dynamic> json) =>
+      GridTurnPassedEvent(
+        reason: json['reason'] as String,
+        playerId: json['player_id'] as String,
+        turnDeadline: (json['turn_deadline'] as num).toDouble(),
+        nextTurnPlayerId: json['next_turn_player_id'] as String,
+      );
+}
+
+class GridDrawProposedEvent {
+  final String proposerId;
+  GridDrawProposedEvent({required this.proposerId});
+  factory GridDrawProposedEvent.fromJson(Map<String, dynamic> json) =>
+      GridDrawProposedEvent(proposerId: json['proposer_id'] as String);
+}
+
+class GridDrawResolvedEvent {
+  final bool accepted;
+  final bool ended;
+  GridDrawResolvedEvent({required this.accepted, required this.ended});
+  factory GridDrawResolvedEvent.fromJson(Map<String, dynamic> json) =>
+      GridDrawResolvedEvent(
+        accepted: json['accepted'] as bool? ?? false,
+        ended: json['ended'] as bool? ?? false,
+      );
+}
+
+class GridGameEndedEvent {
+  final GridEndReason? endReason;
+  final String? winnerId;
+  final String? expiredPlayerId;
+  final Map<String, int> scores;
+
+  GridGameEndedEvent({
+    this.endReason,
+    this.winnerId,
+    this.expiredPlayerId,
+    this.scores = const {},
+  });
+
+  factory GridGameEndedEvent.fromJson(Map<String, dynamic> json) =>
+      GridGameEndedEvent(
+        endReason: GridEndReason.fromBackendString(json['end_reason'] as String?),
+        winnerId: json['winner_id'] as String?,
+        expiredPlayerId: json['expired_player_id'] as String?,
+        scores: (json['scores'] as Map<String, dynamic>? ?? {})
+            .map((k, v) => MapEntry(k, v as int)),
+      );
+}
+
 /// WebSocket service for managing real-time communication
 class WebSocketService {
   WebSocketChannel? _channel;
@@ -582,6 +740,13 @@ class WebSocketService {
   final _gameStartedController = StreamController<GameStartedEvent>.broadcast();
   final _poolUpdatedController = StreamController<PoolUpdatedEvent>.broadcast();
   final _selectionFailedController = StreamController<SelectionFailedEvent>.broadcast();
+  // NBA Grid controllers
+  final _gridGameStartedController = StreamController<GridGameStartedEvent>.broadcast();
+  final _gridCellMarkedController = StreamController<GridCellMarkedEvent>.broadcast();
+  final _gridTurnPassedController = StreamController<GridTurnPassedEvent>.broadcast();
+  final _gridDrawProposedController = StreamController<GridDrawProposedEvent>.broadcast();
+  final _gridDrawResolvedController = StreamController<GridDrawResolvedEvent>.broadcast();
+  final _gridGameEndedController = StreamController<GridGameEndedEvent>.broadcast();
 
   // Connection state
   Stream<ConnectionStatus> get connectionState => _connectionStateController.stream;
@@ -603,6 +768,13 @@ class WebSocketService {
   Stream<GameStartedEvent> get onGameStarted => _gameStartedController.stream;
   Stream<PoolUpdatedEvent> get onPoolUpdated => _poolUpdatedController.stream;
   Stream<SelectionFailedEvent> get onSelectionFailed => _selectionFailedController.stream;
+  // NBA Grid streams
+  Stream<GridGameStartedEvent> get onGridGameStarted => _gridGameStartedController.stream;
+  Stream<GridCellMarkedEvent> get onGridCellMarked => _gridCellMarkedController.stream;
+  Stream<GridTurnPassedEvent> get onGridTurnPassed => _gridTurnPassedController.stream;
+  Stream<GridDrawProposedEvent> get onGridDrawProposed => _gridDrawProposedController.stream;
+  Stream<GridDrawResolvedEvent> get onGridDrawResolved => _gridDrawResolvedController.stream;
+  Stream<GridGameEndedEvent> get onGridGameEnded => _gridGameEndedController.stream;
 
   bool get isConnected => _channel != null;
 
@@ -717,6 +889,41 @@ class WebSocketService {
     });
   }
 
+  // ---------- NBA Grid actions ----------
+
+  /// Host starts the grid game.
+  void startGridGame() {
+    _send(WsActionType.startGridGame, {});
+  }
+
+  /// Current-turn player submits a guess for cell (row, col).
+  void submitGridGuess({
+    required int row,
+    required int col,
+    required String playerName,
+  }) {
+    _send(WsActionType.submitGridGuess, {
+      'row': row,
+      'col': col,
+      'player_name': playerName,
+    });
+  }
+
+  /// Current-turn player skips, passing the turn.
+  void skipGridTurn() {
+    _send(WsActionType.skipGridTurn, {});
+  }
+
+  /// Offer a draw — opponent must accept/decline.
+  void proposeGridDraw() {
+    _send(WsActionType.proposeGridDraw, {});
+  }
+
+  /// Respond to a pending draw proposal.
+  void respondGridDraw({required bool accept}) {
+    _send(WsActionType.respondGridDraw, {'accept': accept});
+  }
+
   // Private methods
   void _handleMessage(dynamic message) {
     try {
@@ -775,6 +982,25 @@ class WebSocketService {
         case WsEventType.selectionFailed:
           _selectionFailedController.add(SelectionFailedEvent.fromJson(data));
           break;
+        // NBA Grid events
+        case WsEventType.gridGameStarted:
+          _gridGameStartedController.add(GridGameStartedEvent.fromJson(data));
+          break;
+        case WsEventType.gridCellMarked:
+          _gridCellMarkedController.add(GridCellMarkedEvent.fromJson(data));
+          break;
+        case WsEventType.gridTurnPassed:
+          _gridTurnPassedController.add(GridTurnPassedEvent.fromJson(data));
+          break;
+        case WsEventType.gridDrawProposed:
+          _gridDrawProposedController.add(GridDrawProposedEvent.fromJson(data));
+          break;
+        case WsEventType.gridDrawResolved:
+          _gridDrawResolvedController.add(GridDrawResolvedEvent.fromJson(data));
+          break;
+        case WsEventType.gridGameEnded:
+          _gridGameEndedController.add(GridGameEndedEvent.fromJson(data));
+          break;
         default:
           debugPrint('Unknown event type: $event');
       }
@@ -830,5 +1056,12 @@ class WebSocketService {
     _gameStartedController.close();
     _poolUpdatedController.close();
     _selectionFailedController.close();
+    // Grid controllers
+    _gridGameStartedController.close();
+    _gridCellMarkedController.close();
+    _gridTurnPassedController.close();
+    _gridDrawProposedController.close();
+    _gridDrawResolvedController.close();
+    _gridGameEndedController.close();
   }
 }

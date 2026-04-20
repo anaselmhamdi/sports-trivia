@@ -3,6 +3,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../models/game_state.dart';
+import '../models/grid.dart';
 import '../models/player.dart';
 import '../providers/game_provider.dart';
 import '../theme/app_colors.dart';
@@ -54,6 +55,11 @@ class _ResultScreenState extends ConsumerState<ResultScreen> {
         context.goNamed('lobby');
       }
     });
+
+    // NBA Grid mode: show a dedicated end-game card; result will be null.
+    if (gameState.isNbaGrid) {
+      return _buildGridResult(context, gameState);
+    }
 
     if (result == null) {
       return const Scaffold(
@@ -146,6 +152,150 @@ class _ResultScreenState extends ConsumerState<ResultScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildGridResult(BuildContext context, GameState state) {
+    final myId = state.self?.id;
+    final winnerId = state.gridWinnerId;
+    final reason = state.gridEndReason;
+
+    final (String headline, Color accent, IconData icon) = (() {
+      if (winnerId == null) {
+        return ('DRAW', AppColors.electricCyan, Icons.handshake);
+      }
+      if (winnerId == myId) {
+        return ('YOU WIN', AppColors.victoryGreen, Icons.emoji_events);
+      }
+      return ('YOU LOSE', AppColors.lossRed, Icons.sentiment_dissatisfied);
+    })();
+
+    final reasonLabel = switch (reason) {
+      GridEndReason.threeInRow => '3-in-a-row',
+      GridEndReason.boardFull => 'Board full — no 3-in-a-row',
+      GridEndReason.drawAccepted => 'Draw accepted',
+      GridEndReason.clockOut => '',
+      null => '',
+    };
+
+    return Scaffold(
+      body: SafeArea(
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(AppTheme.spaceMd),
+              decoration: const BoxDecoration(
+                color: AppColors.surface,
+                border: Border(
+                  bottom: BorderSide(color: AppColors.gray700),
+                ),
+              ),
+              child: Text(
+                'NBA TIC TAC TOE — ROUND ${state.roundNumber}',
+                style: AppTheme.h3Style.copyWith(letterSpacing: 2),
+              ),
+            ),
+            Expanded(
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(icon, size: 64, color: accent),
+                    const SizedBox(height: AppTheme.spaceMd),
+                    Text(
+                      headline,
+                      style: AppTheme.heroStyle.copyWith(
+                        color: accent,
+                        fontSize: 40,
+                      ),
+                    ),
+                    if (reasonLabel.isNotEmpty) ...[
+                      const SizedBox(height: AppTheme.spaceSm),
+                      Text(reasonLabel, style: AppTheme.captionStyle),
+                    ],
+                    const SizedBox(height: AppTheme.spaceLg),
+                    _GridScoreLine(state: state),
+                  ],
+                ),
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.all(AppTheme.spaceLg),
+              decoration: const BoxDecoration(
+                color: AppColors.surface,
+                border: Border(top: BorderSide(color: AppColors.gray700)),
+              ),
+              child: Row(
+                children: [
+                  TextButton(
+                    onPressed: _leaveRoom,
+                    child: const Text('Leave'),
+                  ),
+                  const Spacer(),
+                  if (state.isHost)
+                    _PlayAgainButton(onPressed: _playAgain, label: 'NEW BOARD')
+                  else
+                    Text(
+                      'Waiting for host...',
+                      style: AppTheme.captionStyle,
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GridScoreLine extends StatelessWidget {
+  final GameState state;
+  const _GridScoreLine({required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    final self = state.self;
+    final opp = state.opponent;
+    if (self == null) return const SizedBox.shrink();
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _scoreTile(self.name, self.score, state.playerSymbols?[self.id]),
+        const SizedBox(width: AppTheme.spaceLg),
+        const Text('vs', style: TextStyle(color: AppColors.textSecondary)),
+        const SizedBox(width: AppTheme.spaceLg),
+        _scoreTile(
+          opp?.name ?? 'Opponent',
+          opp?.score ?? 0,
+          opp == null ? null : state.playerSymbols?[opp.id],
+        ),
+      ],
+    );
+  }
+
+  Widget _scoreTile(String name, int score, String? symbol) {
+    return Column(
+      children: [
+        if (symbol != null)
+          Text(
+            symbol,
+            style: const TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+        Text(
+          '$score',
+          style: const TextStyle(
+            fontSize: 28,
+            fontWeight: FontWeight.bold,
+            color: AppColors.primary,
+          ),
+        ),
+      ],
     );
   }
 }

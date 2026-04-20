@@ -2,9 +2,12 @@
 
 from sports_trivia.models.game import (
     ClubSubmission,
+    DrawProposal,
     GameMode,
     GamePhase,
     GameState,
+    GridCategory,
+    GridCell,
     Player,
     Sport,
 )
@@ -17,5 +20,8 @@ __all__ = [
     "Player",
     "GameState",
     "ClubSubmission",
+    "GridCell",
+    "GridCategory",
+    "DrawProposal",
     "Room",
 ]

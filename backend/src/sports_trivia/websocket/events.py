@@ -22,6 +22,12 @@ class ClientEvent(str, Enum):
         "start_game"  # Host starts game (multiplayer: WAITING_FOR_PLAYERS → WAITING_FOR_CLUBS)
     )
     START_ROUND = "start_round"  # Host starts round (WAITING_FOR_CLUBS → GUESSING)
+    # NBA Grid events
+    START_GRID_GAME = "start_grid_game"  # Host starts the grid game
+    SUBMIT_GRID_GUESS = "submit_grid_guess"  # {row, col, player_name}
+    SKIP_GRID_TURN = "skip_grid_turn"
+    PROPOSE_GRID_DRAW = "propose_grid_draw"
+    RESPOND_GRID_DRAW = "respond_grid_draw"  # {accept: bool}
 
 
 class ServerEvent(str, Enum):
@@ -44,6 +50,13 @@ class ServerEvent(str, Enum):
     GAME_STARTED = "game_started"  # Multiplayer game started (WAITING_FOR_CLUBS)
     POOL_UPDATED = "pool_updated"  # Club added to pool (multiplayer)
     SELECTION_FAILED = "selection_failed"  # Could not find clubs with common players
+    # NBA Grid events
+    GRID_GAME_STARTED = "grid_game_started"  # Full grid state at start
+    GRID_CELL_MARKED = "grid_cell_marked"  # Correct guess -> cell claimed
+    GRID_TURN_PASSED = "grid_turn_passed"  # Wrong or skip -> turn swaps
+    GRID_DRAW_PROPOSED = "grid_draw_proposed"  # Opponent proposed a draw
+    GRID_DRAW_RESOLVED = "grid_draw_resolved"  # Accept/decline response
+    GRID_GAME_ENDED = "grid_game_ended"  # 3-in-row / board full / clock out / draw
 
 
 class WebSocketMessage(BaseModel):
