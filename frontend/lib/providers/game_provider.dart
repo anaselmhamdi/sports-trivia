@@ -169,6 +169,36 @@ class GameNotifier extends StateNotifier<GameState> {
       state = _orchestrator.onNewRoundFromServer(state);
     });
 
+    // NBA Grid: game started
+    _subscribe(_ws.onGridGameStarted, (e) {
+      state = _orchestrator.onGridGameStarted(state, e);
+    });
+
+    // NBA Grid: cell marked (correct guess)
+    _subscribe(_ws.onGridCellMarked, (e) {
+      state = _orchestrator.onGridCellMarked(state, e);
+    });
+
+    // NBA Grid: turn passed (wrong guess or skip)
+    _subscribe(_ws.onGridTurnPassed, (e) {
+      state = _orchestrator.onGridTurnPassed(state, e);
+    });
+
+    // NBA Grid: draw proposed
+    _subscribe(_ws.onGridDrawProposed, (e) {
+      state = _orchestrator.onGridDrawProposed(state, e);
+    });
+
+    // NBA Grid: draw resolved
+    _subscribe(_ws.onGridDrawResolved, (e) {
+      state = _orchestrator.onGridDrawResolved(state, e);
+    });
+
+    // NBA Grid: game ended
+    _subscribe(_ws.onGridGameEnded, (e) {
+      state = _orchestrator.onGridGameEnded(state, e);
+    });
+
     // Full state sync (reconnection)
     _subscribe(_ws.onStateSync, (e) {
       state = _orchestrator.onStateSync(
@@ -270,6 +300,37 @@ class GameNotifier extends StateNotifier<GameState> {
   /// Clear error message
   void clearError() {
     state = _orchestrator.onClearError(state);
+  }
+
+  // ---------- NBA Grid actions ----------
+
+  /// Host starts the NBA Grid game.
+  void startGridGame() {
+    _ws.startGridGame();
+  }
+
+  /// Submit a guess for cell (row, col).
+  void submitGridGuess({
+    required int row,
+    required int col,
+    required String playerName,
+  }) {
+    _ws.submitGridGuess(row: row, col: col, playerName: playerName);
+  }
+
+  /// Skip the current turn.
+  void skipGridTurn() {
+    _ws.skipGridTurn();
+  }
+
+  /// Offer a draw.
+  void proposeGridDraw() {
+    _ws.proposeGridDraw();
+  }
+
+  /// Accept or decline a pending draw proposal.
+  void respondGridDraw({required bool accept}) {
+    _ws.respondGridDraw(accept: accept);
   }
 
   /// Request full state sync from server (e.g., after reconnect)

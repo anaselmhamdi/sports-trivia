@@ -13,7 +13,16 @@ from typing import TYPE_CHECKING, Any
 from rapidfuzz import fuzz, process
 
 from sports_trivia.config import settings
-from sports_trivia.models import ClubSubmission, GameMode, GamePhase, Room, Sport
+from sports_trivia.models import (
+    ClubSubmission,
+    DrawProposal,
+    GameMode,
+    GamePhase,
+    GridCategory,
+    GridCell,
+    Room,
+    Sport,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +31,62 @@ PLAYER_FUZZY_THRESHOLD = 85
 
 # Maximum retry attempts for selecting clubs with common players
 MAX_SELECTION_RETRIES = 5
+
+# NBA Grid tuning
+GRID_TURN_SECONDS = 60.0  # fresh budget granted at the start of every turn
+GRID_DRAW_COOLDOWN_SECONDS = 10.0
+GRID_NBA_IMAGE_URL = "https://cdn.nba.com/headshots/nba/latest/1040x760/{ext_id}.png"
+
+# Back-compat alias for tests that reference the old symbol.
+GRID_STARTING_CLOCK_SECONDS = GRID_TURN_SECONDS
+
+
+def _nba_headshot_url(external_id: str | None) -> str | None:
+    """Build the NBA.com headshot URL for a player by external NBA ID."""
+    if not external_id:
+        return None
+    return GRID_NBA_IMAGE_URL.format(ext_id=external_id)
+
+
+def _category_to_dict(cat: GridCategory) -> dict[str, Any]:
+    """Serialize a GridCategory for broadcast (omit the large player-id list)."""
+    return {
+        "id": cat.id,
+        "family": cat.family,
+        "display_name": cat.display_name,
+        "description": cat.description,
+        "icon_url": cat.icon_url,
+        "icon_kind": cat.icon_kind,
+    }
+
+
+def _grid_to_dict(grid: list[list[GridCell]]) -> list[list[dict[str, Any]]]:
+    """Serialize the 3x3 grid for broadcast."""
+    return [
+        [
+            {
+                "marked_by": cell.marked_by,
+                "symbol": cell.symbol,
+                "player_name": cell.player_name,
+                "player_image_url": cell.player_image_url,
+            }
+            for cell in row
+        ]
+        for row in grid
+    ]
+
+
+# 8 winning lines on a 3x3 grid: (row, col) triples
+_GRID_WIN_LINES: tuple[tuple[tuple[int, int], tuple[int, int], tuple[int, int]], ...] = (
+    ((0, 0), (0, 1), (0, 2)),
+    ((1, 0), (1, 1), (1, 2)),
+    ((2, 0), (2, 1), (2, 2)),
+    ((0, 0), (1, 0), (2, 0)),
+    ((0, 1), (1, 1), (2, 1)),
+    ((0, 2), (1, 2), (2, 2)),
+    ((0, 0), (1, 1), (2, 2)),
+    ((0, 2), (1, 1), (2, 0)),
+)
 
 
 def strip_accents(text: str) -> str:
@@ -614,6 +679,7 @@ class GameManager:
 
         For classic mode: resets to WAITING_FOR_CLUBS and requires new submissions.
         For multiplayer: keeps pool and immediately selects new clubs (instant re-pick).
+        For NBA Grid: regenerates the grid and starts a fresh game (host only).
         """
         if room.game_state.phase != GamePhase.ROUND_END:
             return {"success": False, "error": "Round not ended"}
@@ -630,10 +696,19 @@ class GameManager:
             clubs_per_round = room.game_state.clubs_per_round or 2
             result = self._select_clubs_from_pool_atomic(room, clubs_per_round)
             return result.to_dict()
-        else:
-            # Classic mode: reset everything
+
+        if room.mode == GameMode.NBA_GRID:
+            if player_id and player_id != room.host_id:
+                return {"success": False, "error": "Only host can start new round"}
+            # Reset grid state, then regenerate. start_grid_game requires
+            # WAITING_FOR_PLAYERS, so reset_for_round drops us there.
             room.reset_for_round(clear_pool=True)
-            return {"success": True, "phase": room.game_state.phase.value}
+            room.game_state.phase = GamePhase.WAITING_FOR_PLAYERS
+            return self.start_grid_game(room, room.host_id or "")
+
+        # Classic mode: reset everything
+        room.reset_for_round(clear_pool=True)
+        return {"success": True, "phase": room.game_state.phase.value}
 
     def _get_data_service(self, sport: Sport) -> SportDataService:
         """Get the appropriate data service for the sport."""
@@ -641,6 +716,370 @@ class GameManager:
         from sports_trivia.services import get_service
 
         return get_service(sport)
+
+    # ------------------------------------------------------------------
+    # NBA Grid mode
+    # ------------------------------------------------------------------
+
+    def start_grid_game(self, room: Room, player_id: str) -> dict[str, Any]:
+        """Generate a grid, assign symbols, pick first turn, start clocks.
+
+        Host only. Requires exactly 2 players in NBA_GRID mode.
+        """
+        if room.mode != GameMode.NBA_GRID:
+            return {"success": False, "error": "start_grid_game only valid for NBA Grid mode"}
+        if player_id != room.host_id:
+            return {"success": False, "error": "Only host can start the game"}
+        if room.sport != Sport.NBA:
+            return {"success": False, "error": "NBA Grid currently supports NBA only"}
+        if len(room.players) != 2:
+            return {"success": False, "error": "Need exactly 2 players"}
+        if room.game_state.phase != GamePhase.WAITING_FOR_PLAYERS:
+            return {"success": False, "error": "Game already started"}
+
+        # Generate grid via fresh DB session.
+        from sports_trivia.db import get_session
+        from sports_trivia.services.grid_generator import (
+            GridGenerationError,
+            generate_grid,
+        )
+
+        session = get_session()
+        try:
+            try:
+                rows, cols = generate_grid(session)
+            except GridGenerationError as e:
+                logger.exception("Grid generation failed")
+                return {"success": False, "error": str(e)}
+        finally:
+            session.close()
+
+        # Initialize 3x3 grid of empty cells
+        grid = [[GridCell() for _ in range(3)] for _ in range(3)]
+
+        # Host = X, opponent = O
+        host = next((p for p in room.players if p.id == room.host_id), room.players[0])
+        opp = next(p for p in room.players if p.id != host.id)
+        symbols = {host.id: "X", opp.id: "O"}
+
+        # Random first turn
+        first_turn = random.choice([host.id, opp.id])
+
+        now = time.time()
+        turn_deadline = now + GRID_TURN_SECONDS
+
+        gs = room.game_state
+        gs.phase = GamePhase.GUESSING
+        gs.grid = grid
+        gs.row_categories = rows
+        gs.col_categories = cols
+        gs.current_turn_player_id = first_turn
+        gs.player_symbols = symbols
+        gs.turn_deadline = turn_deadline
+        gs.draw_proposal = None
+        gs.last_draw_decline_at = None
+        gs.end_reason = None
+        gs.winner_id = None
+        gs.increment_version()
+
+        return {
+            "success": True,
+            "grid": _grid_to_dict(grid),
+            "row_categories": [_category_to_dict(c) for c in rows],
+            "col_categories": [_category_to_dict(c) for c in cols],
+            "player_symbols": symbols,
+            "current_turn_player_id": first_turn,
+            "turn_deadline": turn_deadline,
+        }
+
+    def submit_grid_guess(
+        self,
+        room: Room,
+        player_id: str,
+        row: int,
+        col: int,
+        guess: str,
+    ) -> dict[str, Any]:
+        """Attempt to claim cell (row, col) with `guess`."""
+        gs = room.game_state
+
+        if room.mode != GameMode.NBA_GRID or gs.phase != GamePhase.GUESSING:
+            return {"success": False, "error": "Not in an active grid game"}
+        if gs.current_turn_player_id != player_id:
+            return {"success": False, "error": "Not your turn"}
+        if not (0 <= row < 3 and 0 <= col < 3):
+            return {"success": False, "error": "Invalid cell coordinates"}
+        assert (
+            gs.grid is not None and gs.row_categories is not None and gs.col_categories is not None
+        )
+        if gs.grid[row][col].marked_by is not None:
+            return {"success": False, "error": "Cell already marked"}
+
+        # Build the intersection of valid player_ids for this cell
+        row_cat = gs.row_categories[row]
+        col_cat = gs.col_categories[col]
+        intersect = set(row_cat.valid_player_ids).intersection(col_cat.valid_player_ids)
+        if not intersect:
+            # Shouldn't happen — grid generator enforces min_answers — but be defensive.
+            self._grid_swap_turn(room)
+            return {
+                "success": True,
+                "correct": False,
+                "row": row,
+                "col": col,
+                "guess": guess,
+                "turn_deadline": gs.turn_deadline,
+                "next_turn": gs.current_turn_player_id,
+            }
+
+        # Resolve names for the intersection via a fresh session.
+        from sports_trivia.db import Player as DBPlayer
+        from sports_trivia.db import get_session
+
+        session = get_session()
+        try:
+            db_players = session.query(DBPlayer).filter(DBPlayer.id.in_(list(intersect))).all()
+            candidates = [
+                {"id": p.id, "name": p.name, "external_id": p.external_id} for p in db_players
+            ]
+        finally:
+            session.close()
+
+        names = [c["name"] for c in candidates]
+        is_match, matched_name = self._match_player_name(guess, names)
+
+        if not is_match:
+            self._grid_swap_turn(room)
+            return {
+                "success": True,
+                "correct": False,
+                "row": row,
+                "col": col,
+                "guess": guess,
+                "turn_deadline": gs.turn_deadline,
+                "next_turn": gs.current_turn_player_id,
+            }
+
+        # Correct — mark the cell, check for win.
+        matched = next((c for c in candidates if c["name"] == matched_name), None)
+        image_url = _nba_headshot_url(matched["external_id"]) if matched else None
+        symbol = (gs.player_symbols or {}).get(player_id) or "?"
+        cell = gs.grid[row][col]
+        cell.marked_by = player_id
+        cell.symbol = symbol
+        cell.player_name = matched_name
+        cell.player_image_url = image_url
+
+        # Win / draw checks
+        winner = self._grid_check_winner(room)
+        if winner is not None:
+            return self._grid_end_three_in_row(room, winner, row, col, matched_name, image_url)
+        if self._grid_board_full(room):
+            return self._grid_end_board_full(room, row, col, matched_name, image_url)
+
+        self._grid_swap_turn(room)
+        return {
+            "success": True,
+            "correct": True,
+            "row": row,
+            "col": col,
+            "player_id": player_id,
+            "symbol": symbol,
+            "player_name": matched_name,
+            "player_image_url": image_url,
+            "turn_deadline": gs.turn_deadline,
+            "next_turn": gs.current_turn_player_id,
+        }
+
+    def skip_grid_turn(self, room: Room, player_id: str) -> dict[str, Any]:
+        """Player voluntarily passes their turn. Opponent gets a fresh 60s."""
+        gs = room.game_state
+        if room.mode != GameMode.NBA_GRID or gs.phase != GamePhase.GUESSING:
+            return {"success": False, "error": "Not in an active grid game"}
+        if gs.current_turn_player_id != player_id:
+            return {"success": False, "error": "Not your turn"}
+
+        self._grid_swap_turn(room)
+        return {
+            "success": True,
+            "reason": "skip",
+            "player_id": player_id,
+            "turn_deadline": gs.turn_deadline,
+            "next_turn": gs.current_turn_player_id,
+        }
+
+    def propose_grid_draw(self, room: Room, player_id: str) -> dict[str, Any]:
+        """Open a draw proposal. Opponent must accept/decline."""
+        gs = room.game_state
+        if room.mode != GameMode.NBA_GRID or gs.phase != GamePhase.GUESSING:
+            return {"success": False, "error": "Not in an active grid game"}
+        if room.get_player(player_id) is None:
+            return {"success": False, "error": "Player not in room"}
+        if gs.draw_proposal is not None:
+            return {"success": False, "error": "A draw proposal is already pending"}
+
+        now = time.time()
+        if gs.last_draw_decline_at is not None:
+            since = now - gs.last_draw_decline_at
+            if since < GRID_DRAW_COOLDOWN_SECONDS:
+                remaining = GRID_DRAW_COOLDOWN_SECONDS - since
+                return {
+                    "success": False,
+                    "error": f"Draw proposals on cooldown ({remaining:.0f}s)",
+                }
+
+        gs.draw_proposal = DrawProposal(proposer_id=player_id, proposed_at=now)
+        gs.increment_version()
+        return {"success": True, "proposer_id": player_id}
+
+    def respond_grid_draw(self, room: Room, player_id: str, accept: bool) -> dict[str, Any]:
+        """Accept/decline a pending draw. Accept ends game as a draw."""
+        gs = room.game_state
+        if room.mode != GameMode.NBA_GRID or gs.phase != GamePhase.GUESSING:
+            return {"success": False, "error": "Not in an active grid game"}
+        if gs.draw_proposal is None:
+            return {"success": False, "error": "No pending draw proposal"}
+        if gs.draw_proposal.proposer_id == player_id:
+            return {"success": False, "error": "You cannot respond to your own proposal"}
+
+        if accept:
+            gs.phase = GamePhase.ROUND_END
+            gs.end_reason = "draw_accepted"
+            gs.winner_id = None
+            gs.draw_proposal = None
+            gs.increment_version()
+            return {
+                "success": True,
+                "accepted": True,
+                "ended": True,
+                "end_reason": "draw_accepted",
+                "winner_id": None,
+            }
+
+        gs.draw_proposal = None
+        gs.last_draw_decline_at = time.time()
+        gs.increment_version()
+        return {"success": True, "accepted": False, "ended": False}
+
+    def grid_timer_expired(self, room: Room, expired_player_id: str) -> dict[str, Any]:
+        """Called by the background watcher when the per-turn 60s clock hits 0.
+
+        Treated as an auto-skip — the turn passes to the opponent with a fresh
+        60s budget. The game does NOT end on timer expiry; only 3-in-a-row,
+        board-full, or a mutually accepted draw end the game.
+        """
+        gs = room.game_state
+        if room.mode != GameMode.NBA_GRID or gs.phase != GamePhase.GUESSING:
+            return {"success": False, "error": "Not in active grid game"}
+        if gs.current_turn_player_id != expired_player_id:
+            # Turn already moved (e.g. a guess arrived just before the timer).
+            return {"success": False, "error": "Turn already advanced"}
+
+        self._grid_swap_turn(room)
+        return {
+            "success": True,
+            "reason": "timeout",
+            "player_id": expired_player_id,
+            "turn_deadline": gs.turn_deadline,
+            "next_turn": gs.current_turn_player_id,
+        }
+
+    # Back-compat alias in case older handlers still reference the name.
+    grid_clock_expired = grid_timer_expired
+
+    # ---- internal grid helpers ----
+
+    def _grid_swap_turn(self, room: Room) -> None:
+        """Hand the turn to the opponent and grant a fresh 60s budget."""
+        gs = room.game_state
+        if gs.current_turn_player_id is None:
+            return
+        other = next((p.id for p in room.players if p.id != gs.current_turn_player_id), None)
+        if other is None:
+            return
+        gs.current_turn_player_id = other
+        gs.turn_deadline = time.time() + GRID_TURN_SECONDS
+        gs.increment_version()
+
+    def _grid_check_winner(self, room: Room) -> str | None:
+        """Return the player_id that owns any 3-in-a-row, or None."""
+        gs = room.game_state
+        if gs.grid is None:
+            return None
+        for line in _GRID_WIN_LINES:
+            owners = {gs.grid[r][c].marked_by for r, c in line}
+            if len(owners) == 1 and None not in owners:
+                return next(iter(owners))
+        return None
+
+    def _grid_board_full(self, room: Room) -> bool:
+        gs = room.game_state
+        if gs.grid is None:
+            return False
+        return all(cell.marked_by is not None for row in gs.grid for cell in row)
+
+    def _grid_end_three_in_row(
+        self,
+        room: Room,
+        winner_id: str,
+        last_row: int,
+        last_col: int,
+        player_name: str,
+        image_url: str | None,
+    ) -> dict[str, Any]:
+        gs = room.game_state
+        gs.phase = GamePhase.ROUND_END
+        gs.winner_id = winner_id
+        gs.end_reason = "three_in_row"
+        winning_player = room.get_player(winner_id)
+        if winning_player is not None:
+            winning_player.score += 1
+        gs.increment_version()
+        return {
+            "success": True,
+            "correct": True,
+            "row": last_row,
+            "col": last_col,
+            "player_id": winner_id,
+            "symbol": (gs.player_symbols or {}).get(winner_id),
+            "player_name": player_name,
+            "player_image_url": image_url,
+            "turn_deadline": gs.turn_deadline,
+            "game_ended": True,
+            "end_reason": "three_in_row",
+            "winner_id": winner_id,
+        }
+
+    def _grid_end_board_full(
+        self,
+        room: Room,
+        last_row: int,
+        last_col: int,
+        player_name: str,
+        image_url: str | None,
+    ) -> dict[str, Any]:
+        """Board full with no 3-in-a-row → DRAW."""
+        gs = room.game_state
+        gs.phase = GamePhase.ROUND_END
+        gs.winner_id = None
+        gs.end_reason = "board_full"
+        gs.increment_version()
+        return {
+            "success": True,
+            "correct": True,
+            "row": last_row,
+            "col": last_col,
+            "player_id": gs.current_turn_player_id,
+            "symbol": (gs.player_symbols or {}).get(gs.current_turn_player_id or "")
+            if gs.current_turn_player_id
+            else None,
+            "player_name": player_name,
+            "player_image_url": image_url,
+            "turn_deadline": gs.turn_deadline,
+            "game_ended": True,
+            "end_reason": "board_full",
+            "winner_id": None,
+        }
 
     def _match_player_name(self, guess: str, valid_answers: list[str]) -> tuple[bool, str | None]:
         """

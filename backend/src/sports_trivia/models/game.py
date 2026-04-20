@@ -17,6 +17,7 @@ class GameMode(str, Enum):
 
     CLASSIC = "classic"  # 2 players, each submits a club
     MULTIPLAYER = "multiplayer"  # 2-10 players, shared club pool
+    NBA_GRID = "nba_grid"  # 2 players, 3x3 Immaculate Grid tic-tac-toe
 
 
 class GamePhase(str, Enum):
@@ -50,6 +51,34 @@ class Player(BaseModel):
         self.submitted_club = None
 
 
+class GridCell(BaseModel):
+    """One cell of the NBA Grid (3x3)."""
+
+    marked_by: str | None = None  # player_id who claimed it
+    symbol: str | None = None  # "X" or "O"
+    player_name: str | None = None  # the winning guess (canonical name)
+    player_image_url: str | None = None
+
+
+class GridCategory(BaseModel):
+    """A row or column category on the NBA Grid."""
+
+    id: str  # stable id e.g. "team_lakers", "award_mvp"
+    family: str  # "team" | "award" | "draft" | "decade" | "stat" | "team_count" | "coach" | "champion"
+    display_name: str  # human-readable label
+    description: str | None = None  # one-line clarification for ambiguous categories
+    icon_url: str | None = None  # image path (asset or remote URL)
+    icon_kind: str = "text"  # "logo" | "trophy" | "portrait" | "text"
+    valid_player_ids: list[int] = []  # precomputed at grid-generation time
+
+
+class DrawProposal(BaseModel):
+    """Pending draw proposal for NBA Grid mode."""
+
+    proposer_id: str
+    proposed_at: float  # epoch seconds
+
+
 class GameState(BaseModel):
     """Current state of the game."""
 
@@ -66,6 +95,17 @@ class GameState(BaseModel):
     # Multiplayer mode fields
     club_pool: list[ClubSubmission] = []  # Clubs submitted to shared pool
     clubs_per_round: int = 2  # How many clubs to select (2-4), higher = harder
+
+    # NBA Grid mode fields (only populated when mode == GameMode.NBA_GRID)
+    grid: list[list[GridCell]] | None = None  # 3x3 matrix
+    row_categories: list[GridCategory] | None = None  # length 3
+    col_categories: list[GridCategory] | None = None  # length 3
+    current_turn_player_id: str | None = None  # whose turn it is
+    player_symbols: dict[str, str] | None = None  # {player_id: "X"|"O"}
+    turn_deadline: float | None = None  # epoch when the current turn expires
+    draw_proposal: DrawProposal | None = None
+    last_draw_decline_at: float | None = None  # cooldown tracker
+    end_reason: str | None = None  # "three_in_row" | "board_full" | "draw_accepted"
 
     def increment_version(self) -> int:
         """Increment and return the new version number."""
@@ -89,4 +129,14 @@ class GameState(BaseModel):
         self.valid_answer_count = 0
         if clear_pool:
             self.club_pool = []
+        # Grid-mode fields also cleared on round reset
+        self.grid = None
+        self.row_categories = None
+        self.col_categories = None
+        self.current_turn_player_id = None
+        self.player_symbols = None
+        self.turn_deadline = None
+        self.draw_proposal = None
+        self.last_draw_decline_at = None
+        self.end_reason = None
         self.increment_version()

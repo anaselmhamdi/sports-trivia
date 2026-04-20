@@ -12,6 +12,7 @@ import '../theme/app_theme.dart';
 import '../utils/image_helpers.dart';
 import '../widgets/animated_timer.dart';
 import '../widgets/club_input.dart';
+import '../widgets/grid_board.dart';
 import '../widgets/guess_input.dart';
 import '../widgets/pulse_container.dart';
 import '../widgets/room_code_display.dart';
@@ -80,19 +81,21 @@ class _GameScreenState extends ConsumerState<GameScreen> {
               opponent: gameState.opponent,
             ),
 
-            // Main content based on phase
+            // Main content based on phase (and mode for NBA Grid)
             Expanded(
               child: AnimatedSwitcher(
                 duration: AppTheme.normalDuration,
-                child: gameState.phase == GamePhase.clubSelection
-                    ? _ClubSelectionPhase(
-                        key: const ValueKey('club_selection'),
-                        gameState: gameState,
-                      )
-                    : _GuessingPhase(
-                        key: const ValueKey('guessing'),
-                        gameState: gameState,
-                      ),
+                child: gameState.isNbaGrid
+                    ? const GridBoard(key: ValueKey('grid'))
+                    : gameState.phase == GamePhase.clubSelection
+                        ? _ClubSelectionPhase(
+                            key: const ValueKey('club_selection'),
+                            gameState: gameState,
+                          )
+                        : _GuessingPhase(
+                            key: const ValueKey('guessing'),
+                            gameState: gameState,
+                          ),
               ),
             ),
           ],

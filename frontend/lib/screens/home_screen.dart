@@ -226,7 +226,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return SportSelector(
       selectedSport: _selectedSport,
       onSportChanged: (sport) {
-        setState(() => _selectedSport = sport);
+        setState(() {
+          _selectedSport = sport;
+          // NBA Grid is NBA-only — revert to classic if soccer is chosen.
+          if (sport != SportType.nba && _selectedMode == GameMode.nbaGrid) {
+            _selectedMode = GameMode.classic;
+            ref.read(gameStateProvider.notifier).setMode(GameMode.classic);
+          }
+        });
         ref.read(gameStateProvider.notifier).setSport(sport);
       },
     ).animate().fadeIn(delay: const Duration(milliseconds: 400));
@@ -237,15 +244,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       padding: const EdgeInsets.all(AppTheme.spaceSm),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(AppTheme.radiusFull),
+        borderRadius: BorderRadius.circular(AppTheme.radiusLg),
         border: Border.all(color: AppColors.gray700),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        spacing: AppTheme.spaceSm,
+        runSpacing: AppTheme.spaceSm,
         children: [
           _buildModeChip(GameMode.classic),
-          const SizedBox(width: AppTheme.spaceSm),
           _buildModeChip(GameMode.multiplayer),
+          _buildModeChip(GameMode.nbaGrid),
         ],
       ),
     ).animate().fadeIn(delay: const Duration(milliseconds: 450));
@@ -253,12 +262,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Widget _buildModeChip(GameMode mode) {
     final isSelected = _selectedMode == mode;
+    final fg = isSelected ? AppColors.voidBlack : AppColors.textSecondary;
     return GestureDetector(
       onTap: () {
         setState(() {
           _selectedMode = mode;
-          if (mode == GameMode.classic) {
+          if (mode != GameMode.multiplayer) {
             _maxPlayers = 2;
+          }
+          // Tapping NBA Grid auto-switches sport to NBA (the only supported sport for grid).
+          if (mode == GameMode.nbaGrid && _selectedSport != SportType.nba) {
+            _selectedSport = SportType.nba;
+            ref.read(gameStateProvider.notifier).setSport(SportType.nba);
           }
         });
         ref.read(gameStateProvider.notifier).setMode(mode);
@@ -276,18 +291,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              mode.displayName,
-              style: AppTheme.captionStyle.copyWith(
-                color: isSelected ? AppColors.voidBlack : AppColors.textSecondary,
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-              ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (mode == GameMode.nbaGrid) ...[
+                  Icon(Icons.grid_3x3, size: 14, color: fg),
+                  const SizedBox(width: 4),
+                ],
+                Text(
+                  mode.displayName,
+                  style: AppTheme.captionStyle.copyWith(
+                    color: fg,
+                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                  ),
+                ),
+              ],
             ),
             Text(
-              mode == GameMode.classic ? '2 players' : '2-10 players',
+              mode.playerCountLabel,
               style: TextStyle(
                 fontSize: 10,
-                color: isSelected ? AppColors.voidBlack.withValues(alpha: 0.7) : AppColors.textSecondary.withValues(alpha: 0.7),
+                color: fg.withValues(alpha: 0.7),
               ),
             ),
           ],
@@ -298,6 +322,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Widget _buildCreateCard() {
     final isMultiplayer = _selectedMode == GameMode.multiplayer;
+    final isGrid = _selectedMode == GameMode.nbaGrid;
+    final IconData modeIcon;
+    final String createDescription;
+    if (isGrid) {
+      modeIcon = Icons.grid_3x3;
+      createDescription = 'Start an NBA tic-tac-toe game';
+    } else if (isMultiplayer) {
+      modeIcon = Icons.groups;
+      createDescription = 'Start a party game with friends';
+    } else {
+      modeIcon = Icons.add_circle_outline;
+      createDescription = 'Start a 1v1 game and invite a friend';
+    }
     return Container(
       padding: const EdgeInsets.all(AppTheme.spaceLg),
       decoration: BoxDecoration(
@@ -316,10 +353,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   color: AppColors.primary.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(AppTheme.radiusMd),
                 ),
-                child: Icon(
-                  isMultiplayer ? Icons.groups : Icons.add_circle_outline,
-                  color: AppColors.primary,
-                ),
+                child: Icon(modeIcon, color: AppColors.primary),
               ),
               const SizedBox(width: AppTheme.spaceMd),
               Text(
@@ -329,12 +363,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ],
           ),
           const SizedBox(height: AppTheme.spaceMd),
-          Text(
-            isMultiplayer
-                ? 'Start a party game with friends'
-                : 'Start a 1v1 game and invite a friend',
-            style: AppTheme.captionStyle,
-          ),
+          Text(createDescription, style: AppTheme.captionStyle),
           // Max players slider for multiplayer
           if (isMultiplayer) ...[
             const SizedBox(height: AppTheme.spaceMd),

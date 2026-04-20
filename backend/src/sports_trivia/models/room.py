@@ -44,6 +44,7 @@ class Room(BaseModel):
         # Only auto-transition for CLASSIC mode when 2 players join
         if self.mode == GameMode.CLASSIC and len(self.players) == 2:
             self.game_state.phase = GamePhase.WAITING_FOR_CLUBS
+        # NBA_GRID waits in WAITING_FOR_PLAYERS until host presses Start
         return True
 
     def remove_player(self, player_id: str) -> Player | None:
@@ -60,6 +61,10 @@ class Room(BaseModel):
 
                 # Reset to waiting for players if someone leaves (classic needs 2)
                 if self.mode == GameMode.CLASSIC and len(self.players) < 2:
+                    self.game_state.phase = GamePhase.WAITING_FOR_PLAYERS
+
+                # NBA_GRID also needs exactly 2 players; reset to waiting if one leaves
+                if self.mode == GameMode.NBA_GRID and len(self.players) < 2:
                     self.game_state.phase = GamePhase.WAITING_FOR_PLAYERS
 
                 # Transfer host if host leaves (multiplayer)

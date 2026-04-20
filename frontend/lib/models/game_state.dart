@@ -1,3 +1,4 @@
+import 'grid.dart';
 import 'player.dart';
 
 /// Represents a player answer with optional image URL
@@ -16,7 +17,8 @@ class PlayerAnswer {
 /// Represents the game mode
 enum GameMode {
   classic,
-  multiplayer;
+  multiplayer,
+  nbaGrid;
 
   String get displayName {
     switch (this) {
@@ -24,6 +26,8 @@ enum GameMode {
         return '1v1';
       case GameMode.multiplayer:
         return 'Party';
+      case GameMode.nbaGrid:
+        return 'Tic Tac Toe';
     }
   }
 
@@ -33,6 +37,8 @@ enum GameMode {
         return 'classic';
       case GameMode.multiplayer:
         return 'multiplayer';
+      case GameMode.nbaGrid:
+        return 'nba_grid';
     }
   }
 
@@ -42,6 +48,20 @@ enum GameMode {
         return '2 players, head to head';
       case GameMode.multiplayer:
         return '2-10 players, shared pool';
+      case GameMode.nbaGrid:
+        return '2 players, 3×3 NBA tic-tac-toe';
+    }
+  }
+
+  /// Short player-count label shown under the mode chip.
+  String get playerCountLabel {
+    switch (this) {
+      case GameMode.classic:
+        return '2 players';
+      case GameMode.multiplayer:
+        return '2-10 players';
+      case GameMode.nbaGrid:
+        return '2 players';
     }
   }
 
@@ -49,6 +69,8 @@ enum GameMode {
     switch (value.toLowerCase()) {
       case 'multiplayer':
         return GameMode.multiplayer;
+      case 'nba_grid':
+        return GameMode.nbaGrid;
       default:
         return GameMode.classic;
     }
@@ -199,6 +221,17 @@ class GameState {
   final bool isCreator;
   final bool isReconnecting;  // Show reconnecting UI instead of resetting
 
+  // NBA Grid mode (populated only when mode == GameMode.nbaGrid)
+  final List<List<GridCell>>? grid;
+  final List<GridCategory>? rowCategories;
+  final List<GridCategory>? colCategories;
+  final String? currentTurnPlayerId;
+  final Map<String, String>? playerSymbols; // {playerId: "X" | "O"}
+  final double? turnDeadline;               // server epoch when current turn expires
+  final DrawProposal? drawProposal;
+  final GridEndReason? gridEndReason;
+  final String? gridWinnerId;
+
   const GameState({
     this.stateVersion = 0,
     this.connectionStatus = ConnectionStatus.disconnected,
@@ -226,6 +259,15 @@ class GameState {
     this.errorMessage,
     this.isCreator = false,
     this.isReconnecting = false,
+    this.grid,
+    this.rowCategories,
+    this.colCategories,
+    this.currentTurnPlayerId,
+    this.playerSymbols,
+    this.turnDeadline,
+    this.drawProposal,
+    this.gridEndReason,
+    this.gridWinnerId,
   });
 
   /// Calculate remaining seconds until deadline
@@ -254,6 +296,9 @@ class GameState {
   /// Whether this is multiplayer mode
   bool get isMultiplayer => mode == GameMode.multiplayer;
 
+  /// Whether this is NBA Grid mode
+  bool get isNbaGrid => mode == GameMode.nbaGrid;
+
   GameState copyWith({
     int? stateVersion,
     ConnectionStatus? connectionStatus,
@@ -281,6 +326,15 @@ class GameState {
     String? errorMessage,
     bool? isCreator,
     bool? isReconnecting,
+    List<List<GridCell>>? grid,
+    List<GridCategory>? rowCategories,
+    List<GridCategory>? colCategories,
+    String? currentTurnPlayerId,
+    Map<String, String>? playerSymbols,
+    double? turnDeadline,
+    DrawProposal? drawProposal,
+    GridEndReason? gridEndReason,
+    String? gridWinnerId,
     bool clearOpponent = false,
     bool clearDeadline = false,
     bool clearRoundResult = false,
@@ -288,6 +342,9 @@ class GameState {
     bool clearMyClub = false,
     bool clearOpponentClub = false,
     bool clearSelectedClubs = false,
+    bool clearGrid = false,
+    bool clearDrawProposal = false,
+    bool clearGridEndReason = false,
   }) {
     return GameState(
       stateVersion: stateVersion ?? this.stateVersion,
@@ -316,6 +373,15 @@ class GameState {
       errorMessage: clearErrorMessage ? null : (errorMessage ?? this.errorMessage),
       isCreator: isCreator ?? this.isCreator,
       isReconnecting: isReconnecting ?? this.isReconnecting,
+      grid: clearGrid ? null : (grid ?? this.grid),
+      rowCategories: clearGrid ? null : (rowCategories ?? this.rowCategories),
+      colCategories: clearGrid ? null : (colCategories ?? this.colCategories),
+      currentTurnPlayerId: clearGrid ? null : (currentTurnPlayerId ?? this.currentTurnPlayerId),
+      playerSymbols: clearGrid ? null : (playerSymbols ?? this.playerSymbols),
+      turnDeadline: clearGrid ? null : (turnDeadline ?? this.turnDeadline),
+      drawProposal: clearDrawProposal ? null : (drawProposal ?? this.drawProposal),
+      gridEndReason: clearGridEndReason ? null : (gridEndReason ?? this.gridEndReason),
+      gridWinnerId: clearGridEndReason ? null : (gridWinnerId ?? this.gridWinnerId),
     );
   }
 

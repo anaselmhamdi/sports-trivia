@@ -42,3 +42,10 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  assets:
+    - assets/category_icons/awards/
+    - assets/category_icons/birth/
+    - assets/category_icons/draft/
+    - assets/category_icons/season/
+    - assets/category_icons/teams/

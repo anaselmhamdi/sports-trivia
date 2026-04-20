@@ -90,6 +90,36 @@ async def get_clubs(sport: str):
     return {"sport": sport, "clubs": clubs}
 
 
+@app.get("/api/players/{sport}")
+async def get_players(sport: str):
+    """Return the full NBA player roster for autocomplete.
+
+    Only NBA is supported today — grid mode is NBA-only. Soccer can be added
+    later if the corresponding service gains a ``get_all_players`` method.
+    """
+    try:
+        sport_enum = Sport(sport.lower())
+    except ValueError:
+        return {"error": f"Invalid sport: {sport}. Use 'nba' or 'soccer'"}
+
+    if sport_enum != Sport.NBA:
+        return {"sport": sport, "players": []}
+
+    # Query the DB directly for distinct players with external IDs (headshots).
+    from sports_trivia.db import Player, get_session
+
+    session = get_session()
+    try:
+        rows = session.query(Player.name, Player.external_id).order_by(Player.name).all()
+    finally:
+        session.close()
+
+    return {
+        "sport": sport,
+        "players": [{"name": name, "external_id": ext_id} for name, ext_id in rows],
+    }
+
+
 @app.get("/api/clubs/{sport}/validate")
 async def validate_club(sport: str, name: str):
     """Validate a club name and return normalized form if valid."""
