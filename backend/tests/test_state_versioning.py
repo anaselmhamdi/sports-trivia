@@ -1,6 +1,5 @@
 """Tests for state version tracking."""
 
-
 from sports_trivia.models import GamePhase, GameState, Room
 from sports_trivia.services.game_manager import GameManager
 

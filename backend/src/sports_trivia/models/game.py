@@ -64,7 +64,9 @@ class GridCategory(BaseModel):
     """A row or column category on the NBA Grid."""
 
     id: str  # stable id e.g. "team_lakers", "award_mvp"
-    family: str  # "team" | "award" | "draft" | "decade" | "stat" | "team_count" | "coach" | "champion"
+    family: (
+        str  # "team" | "award" | "draft" | "decade" | "stat" | "team_count" | "coach" | "champion"
+    )
     display_name: str  # human-readable label
     description: str | None = None  # one-line clarification for ambiguous categories
     icon_url: str | None = None  # image path (asset or remote URL)
